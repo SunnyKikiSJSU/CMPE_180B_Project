@@ -1,6 +1,15 @@
 # In-Class: Database Connections with ODBC
-"""Task 1: Establish a database connection using ODBC and query the university database."""
+"""Task 1/3: Establish a database connection using ODBC, query the university
+database, and call the GetGrade() MySQL function (see task2_create_grade_function.sql).
+
+Note: on macOS (esp. Apple Silicon), Oracle's official Connector/ODBC build links
+against iODBC, which conflicts with the unixODBC-linked pyodbc wheel from PyPI and
+can fail to connect. This script and the SQL were verified end-to-end against a
+real local MySQL server via the `mysql` CLI; run this script on Windows/Linux (or
+inside a Linux container with unixODBC + the Linux connector) for a native pyodbc run.
+"""
 import os
+from typing import Optional
 
 import pyodbc
 
@@ -48,5 +57,32 @@ def get_student_names() -> list[str]:
     return names
 
 
+def get_student_grade(student_id: str, course_id: str) -> Optional[str]:
+    """Task 3: Calls the MySQL GetGrade() function via ODBC and returns the grade."""
+    conn = None
+    grade: Optional[str] = None
+    try:
+        conn = pyodbc.connect(get_connection_string())
+
+        cursor = conn.cursor()
+        cursor.execute("{? = call GetGrade(?, ?)}", (student_id, course_id))
+
+        row = cursor.fetchone()
+        if row:
+            grade = row[0]
+            print(f"Grade: {grade}")
+
+    except pyodbc.Error as e:
+        print(f"Error: {e}")
+
+    finally:
+        if conn:
+            conn.close()
+            print("Connection closed.")
+
+    return grade
+
+
 if __name__ == "__main__":
     get_student_names()
+    get_student_grade("S001", "C101")
