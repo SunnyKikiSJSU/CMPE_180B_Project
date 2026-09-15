@@ -17,10 +17,10 @@ WHERE dept_name = 'Computer Science';
 
 **Result**
 
-| id   | name              | dept_name        | tot_cred |
-|------|-------------------|------------------|----------|
-| S001 | Ahmed Abdelrahman | Computer Science | 90       |
-| S002 | Jane Smith        | Computer Science | 75       |
+| id | name  | dept_name        | tot_cred |
+|----|-------|------------------|----------|
+| 1  | John  | Computer Science | 45       |
+| 3  | Alice | Computer Science | 78       |
 
 ## B. Projection
 
@@ -35,13 +35,12 @@ FROM ra_student;
 
 **Result**
 
-| name              | tot_cred |
-|-------------------|----------|
-| Ahmed Abdelrahman | 90       |
-| Jane Smith        | 75       |
-| Alice Johnson     | 60       |
-| Bob Martinez      | 45       |
-| Carol White       | 30       |
+| name  | tot_cred |
+|-------|----------|
+| John  | 45       |
+| Emily | 32       |
+| Alice | 78       |
+| Bob   | 22       |
 
 ## C. Union
 
@@ -57,12 +56,12 @@ SELECT id, name, dept_name FROM ra_math_student;
 
 **Result**
 
-| id   | name              | dept_name        |
-|------|-------------------|------------------|
-| S001 | Ahmed Abdelrahman | Computer Science |
-| S002 | Jane Smith        | Computer Science |
-| S003 | Alice Johnson     | Math             |
-| S004 | Bob Martinez      | Math             |
+| id | name  | dept_name        |
+|----|-------|------------------|
+| 1  | John  | Computer Science |
+| 3  | Alice | Computer Science |
+| 2  | Emily | Math             |
+| 4  | Bob   | Math             |
 
 ## D. Set Difference
 
@@ -78,11 +77,10 @@ WHERE dept_name <> 'Computer Science' OR dept_name IS NULL;
 
 **Result**
 
-| id   | name          | dept_name | tot_cred |
-|------|---------------|-----------|----------|
-| S003 | Alice Johnson | Math      | 60       |
-| S004 | Bob Martinez  | Math      | 45       |
-| S005 | Carol White   | Physics   | 30       |
+| id | name  | dept_name | tot_cred |
+|----|-------|-----------|----------|
+| 2  | Emily | Math      | 32       |
+| 4  | Bob   | Math      | 22       |
 
 ## E. Cartesian Product
 
@@ -97,12 +95,12 @@ FROM ra_instructor, ra_course;
 
 **Result**
 
-| id   | name       | course_id | title             |
-|------|------------|-----------|-------------------|
-| I002 | Dr. Lee    | C101      | Database Systems  |
-| I001 | Dr. Turner | C101      | Database Systems  |
-| I002 | Dr. Lee    | C102      | Discrete Math     |
-| I001 | Dr. Turner | C102      | Discrete Math     |
+| id | name  | course_id | title             |
+|----|-------|-----------|-------------------|
+| 2  | Alice | C101      | Database Systems  |
+| 1  | John  | C101      | Database Systems  |
+| 2  | Alice | C102      | Algorithms        |
+| 1  | John  | C102      | Algorithms        |
 
 ## F. Renaming
 
@@ -120,10 +118,9 @@ FROM ra_student;
 
 **Result**
 
-| student_id | student_name      | department        | total_credits |
-|------------|-------------------|--------------------|----------------|
-| S001       | Ahmed Abdelrahman | Computer Science   | 90             |
-| S002       | Jane Smith        | Computer Science   | 75             |
-| S003       | Alice Johnson     | Math               | 60             |
-| S004       | Bob Martinez      | Math               | 45             |
-| S005       | Carol White       | Physics            | 30             |
+| student_id | student_name | department        | total_credits |
+|------------|--------------|--------------------|----------------|
+| 1          | John         | Computer Science   | 45             |
+| 2          | Emily        | Math               | 32             |
+| 3          | Alice        | Computer Science   | 78             |
+| 4          | Bob          | Math               | 22             |
