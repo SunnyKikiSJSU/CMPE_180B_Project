@@ -7,9 +7,8 @@ Queries: see [queries.sql](./queries.sql)
 
 **Task**: Retrieve all students from the "Computer Science" department.
 
-Relational Algebra: σ dept_name='Computer Science' (ra_student)
-
 ```sql
+-- σ dept_name='Computer Science' (ra_student)
 SELECT *
 FROM ra_student
 WHERE dept_name = 'Computer Science';
@@ -26,9 +25,8 @@ WHERE dept_name = 'Computer Science';
 
 **Task**: Retrieve the list of student names and their total credits.
 
-Relational Algebra: π name, tot_cred (ra_student)
-
 ```sql
+-- π name, tot_cred (ra_student)
 SELECT name, tot_cred
 FROM ra_student;
 ```
@@ -46,9 +44,8 @@ FROM ra_student;
 
 **Task**: Combine the lists of Computer Science and Math students.
 
-Relational Algebra: ra_cs_student ∪ ra_math_student
-
 ```sql
+-- ra_cs_student ∪ ra_math_student
 SELECT id, name, dept_name FROM ra_cs_student
 UNION
 SELECT id, name, dept_name FROM ra_math_student;
@@ -67,9 +64,8 @@ SELECT id, name, dept_name FROM ra_math_student;
 
 **Task**: Find students who are not in the Computer Science department.
 
-Relational Algebra: ra_student − ra_cs_student
-
 ```sql
+-- ra_student − ra_cs_student
 SELECT id, name, dept_name, tot_cred
 FROM ra_student
 WHERE dept_name <> 'Computer Science' OR dept_name IS NULL;
@@ -86,9 +82,8 @@ WHERE dept_name <> 'Computer Science' OR dept_name IS NULL;
 
 **Task**: Pair each instructor with every course.
 
-Relational Algebra: ra_instructor × ra_course
-
 ```sql
+-- ra_instructor × ra_course
 SELECT *
 FROM ra_instructor, ra_course;
 ```
@@ -106,9 +101,8 @@ FROM ra_instructor, ra_course;
 
 **Task**: Rename the attributes of the Student table.
 
-Relational Algebra: ρ (student_id, student_name, department, total_credits) (ra_student)
-
 ```sql
+-- ρ (student_id, student_name, department, total_credits) (ra_student)
 SELECT id        AS student_id,
        name      AS student_name,
        dept_name AS department,
