@@ -29,3 +29,35 @@ mysql -u <user> -p < data.sql
 `schema.sql` creates the `university` database and all tables in dependency order
 (department/classroom → student/instructor/course → section → teaches/takes/advisor)
 so foreign keys resolve correctly. `data.sql` populates the same tables in that order.
+
+## Part 2: Writing SQL Queries
+
+### A. Files
+
+- [queries.sql](queries.sql) — all Part 2 queries (join/aggregation, subqueries, filtering).
+- [RESULTS.md](RESULTS.md) — result tables produced by running `queries.sql` against the sample data.
+
+### B. How to run (MySQL)
+
+```bash
+mysql -u <user> -p < schema.sql
+mysql -u <user> -p < data.sql
+mysql -u <user> -p < queries.sql
+```
+
+### C. Tasks covered
+
+- **A. Join Operations and Aggregation** — students with total credits and department;
+  student count per department; instructor course-load counts.
+- **B. Subqueries and Nested Queries** — students who took every section of
+  "Database System Concepts" (relational division via nested `NOT EXISTS`); instructors
+  who teach no course in the "Comp. Sci." department (`NOT IN` subquery).
+- **C. Complex Filtering and Set Operations** — students taking more than one course in
+  the same semester (`GROUP BY ... HAVING`); students who never received a grade lower
+  than 'B' (`NOT EXISTS` over a letter-grade allow-list).
+
+## Deliverables
+
+- [schema.sql](schema.sql), [data.sql](data.sql), [queries.sql](queries.sql) — all SQL scripts.
+- [RESULTS.md](RESULTS.md) — query results captured from a live MySQL run.
+- [LLM_PROMPTS.md](LLM_PROMPTS.md) — log of prompts used to help produce this assignment.
