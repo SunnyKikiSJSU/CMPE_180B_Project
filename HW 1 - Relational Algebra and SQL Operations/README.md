@@ -60,4 +60,3 @@ mysql -u <user> -p < queries.sql
 
 - [schema.sql](schema.sql), [data.sql](data.sql), [queries.sql](queries.sql) — all SQL scripts.
 - [RESULTS.md](RESULTS.md) — query results captured from a live MySQL run.
-- [LLM_PROMPTS.md](LLM_PROMPTS.md) — log of prompts used to help produce this assignment.
