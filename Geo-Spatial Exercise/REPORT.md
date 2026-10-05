@@ -69,86 +69,114 @@ bounding-box relationship checks are.
 
 ## Spatial Queries and Results
 
+For each type of analysis: the query used (see `queries.sql` for the exact
+SQL), the result, and the interpretation.
+
 ### 1. Querying Geo-Spatial Data
 
-- All 3 parks round-trip correctly through `ST_AsText(area)`.
-- `ST_Contains(plaza_polygon, footprint)` correctly identifies **San Jose
-  Museum of Art** as the one building located inside Plaza de Cesar Chavez —
-  matching its real-world location directly adjacent to the plaza.
+- **Query:** `SELECT name, ST_AsText(area) FROM parks;` and
+  `ST_Contains(plaza_polygon, footprint)` to find buildings inside Plaza de
+  Cesar Chavez.
+- **Result:** All 3 parks round-trip correctly through `ST_AsText(area)`.
+  `ST_Contains` returns exactly one row: **San Jose Museum of Art**.
+- **Interpretation:** San Jose Museum of Art is modeled as the one building
+  located inside Plaza de Cesar Chavez — matching its real-world location
+  directly adjacent to the plaza.
 
 ### 2. Location Functions
 
-- `ST_Centroid` (coordinate retrieval/conversion) on each park's polygon
-  returns its geometric center point, e.g. Plaza de Cesar Chavez →
-  `POINT(-121.8899 37.33355)` — a single representative point useful for
-  map pins or proximity sorting without needing the full polygon.
-- Distance between San Jose City Hall and SAP Center: **0.0158 degrees**
-  (point-to-point, straight-line). Since coordinates are in degrees rather
-  than meters, this is a relative/comparative measure, not a literal
-  distance — at this latitude, 1 degree of longitude is roughly 88 km, so
-  this maps to a rough real-world separation of a few kilometers, consistent
-  with these two landmarks being on opposite sides of downtown.
-- Nearest park to San Jose City Hall: **Plaza de Cesar Chavez**
-  (distance ≈ 0.00383 degrees), which matches reality — City Hall is only a
+- **Query:** `ST_Centroid(area)` per park; `ST_Distance` between two points;
+  `ST_Distance` + `ORDER BY`/`LIMIT 1` for nearest-park lookup.
+- **Result:** Centroid of Plaza de Cesar Chavez → `POINT(-121.8899
+  37.33355)`. Distance between San Jose City Hall and SAP Center: **0.0158
+  degrees**. Nearest park to San Jose City Hall: **Plaza de Cesar Chavez**
+  (distance ≈ 0.00383 degrees).
+- **Interpretation:** `ST_Centroid` gives a single representative point
+  useful for map pins or proximity sorting without needing the full
+  polygon. Since coordinates are in degrees rather than meters, the
+  distance values are a relative/comparative measure, not a literal
+  distance — at this latitude 1 degree of longitude is roughly 88 km, so
+  0.0158 degrees maps to a rough real-world separation of a few kilometers,
+  consistent with City Hall and SAP Center being on opposite sides of
+  downtown. The nearest-park result matches reality — City Hall is only a
   few blocks from the Plaza.
 
 ### 3. Distance Calculations
 
-Roads within 0.005 degrees of Plaza de Cesar Chavez: **all three** (The
-Alameda, Santa Clara Street, Almaden Boulevard) — expected, since all three
-streets run through or near downtown San Jose where the plaza sits.
+- **Query:** `ST_Distance(r.path, p.area) < 0.005` for roads vs. Plaza de
+  Cesar Chavez.
+- **Result:** **All three** roads (The Alameda, Santa Clara Street, Almaden
+  Boulevard) are within 0.005 degrees.
+- **Interpretation:** Expected, since all three streets run through or near
+  downtown San Jose where the plaza sits.
 
 ### 4. Area and Perimeter
 
-| Feature | Area (deg²) | Notes |
-|---|---|---|
-| Plaza de Cesar Chavez | 0.0000024 | Smallest park — matches its compact, single-block footprint in reality |
-| Guadalupe River Park | 0.000033 | Largest park — matches its long, linear shape along the river |
-| Kelley Park | 0.00002 | Mid-sized, matches its larger multi-block real footprint |
+- **Query:** `ST_Area(area)` per park; `ST_Length(ST_ExteriorRing(footprint))`
+  per building (MySQL has no native `ST_Perimeter()`).
+- **Result:**
 
-Building perimeters (via `ST_Length(ST_ExteriorRing(footprint))`, since MySQL
-has no native `ST_Perimeter()`): City Hall and Museum of Art ≈ 0.002 deg,
-SAP Center ≈ 0.004 deg (SAP Center's footprint is modeled larger, matching
-its real status as a full arena vs. the smaller office/museum buildings).
+  | Feature | Area (deg²) |
+  |---|---|
+  | Plaza de Cesar Chavez | 0.0000024 |
+  | Guadalupe River Park | 0.000033 |
+  | Kelley Park | 0.00002 |
+
+  Building perimeters: City Hall and Museum of Art ≈ 0.002 deg, SAP Center
+  ≈ 0.004 deg.
+- **Interpretation:** Plaza de Cesar Chavez is smallest, matching its
+  compact single-block footprint; Guadalupe River Park is largest, matching
+  its long, linear shape along the river; Kelley Park is mid-sized, matching
+  its larger multi-block real footprint. SAP Center's larger perimeter
+  matches its real status as a full arena vs. the smaller office/museum
+  buildings.
 
 ### 5. Intersection and Containment
 
-- `ST_Intersects(footprint, path)` found **San Jose City Hall** intersecting
-  a road path — City Hall's real address (200 E Santa Clara St) sits right
-  on Santa Clara Street, so this is the expected real-world match.
-- `ST_Contains(area, POINT)` correctly placed a test point inside
-  **Plaza de Cesar Chavez** only, not the other two parks.
+- **Query:** `ST_Intersects(footprint, path)` for buildings vs. roads;
+  `ST_Contains(area, POINT)` for a test point vs. parks.
+- **Result:** **San Jose City Hall** intersects a road path. The test point
+  is contained only by **Plaza de Cesar Chavez**.
+- **Interpretation:** City Hall's real address (200 E Santa Clara St) sits
+  right on Santa Clara Street, so the intersection result is the expected
+  real-world match. The containment result correctly excludes the other two
+  parks.
 
 ### 6. Buffering
 
-A 0.001-degree buffer was generated around each park polygon using
-`ST_Buffer`. A 0.001-degree buffer is approximately 88–111 meters in San
-Jose, depending on direction. Since the data uses SRID 0 and degree
-coordinates, this is only an approximation. Buffering San Jose Museum of
-Art's buildings query (`buildings within buffered parks`) correctly
-returned **San Jose Museum of Art** as within the buffered Plaza
-boundary — consistent with it being the closest building to the plaza.
+- **Query:** `ST_Buffer(area, 0.001)` per park, then `ST_Contains` of the
+  buffered polygon against building footprints.
+- **Result:** San Jose Museum of Art is the only building within the
+  buffered Plaza de Cesar Chavez boundary.
+- **Interpretation:** A 0.001-degree buffer is approximately 88–111 meters
+  in San Jose, depending on direction; since the data uses SRID 0 and degree
+  coordinates, this is only an approximation. The result is consistent with
+  the Museum of Art being the closest building to the plaza.
 
 ### 7. Analysis Functions
 
-- `ST_Union` of Plaza de Cesar Chavez + Guadalupe River Park produced a
-  `MULTIPOLYGON` (the two parks are disjoint/non-adjacent in this model,
-  matching their real separation of roughly half a mile).
-- `ST_Difference` of the same two parks returned the full Plaza polygon
-  unchanged, confirming the two shapes don't overlap.
+- **Query:** `ST_Union` and `ST_Difference` on Plaza de Cesar Chavez +
+  Guadalupe River Park.
+- **Result:** `ST_Union` produced a `MULTIPOLYGON`. `ST_Difference` returned
+  the full Plaza polygon unchanged.
+- **Interpretation:** The two parks are disjoint/non-adjacent in this model
+  (matching their real separation of roughly half a mile), so the union
+  can't merge into one polygon and the difference confirms no overlap.
 
 ### 8. Relationship Functions
 
-- `ST_Touches`: no buildings reported as touching a park boundary exactly
-  (expected — none of the modeled footprints share an edge).
-- `ST_Within`: San Jose Museum of Art confirmed within Plaza de Cesar
-  Chavez's polygon.
-- `ST_Crosses`: Santa Clara Street intersects the boundary of Plaza de
-  Cesar Chavez. Because the modeled road follows the plaza edge,
-  `ST_Intersects` or `ST_Touches` is more appropriate than `ST_Crosses` to
-  describe this relationship — `ST_Crosses` technically matched here only
-  because the modeled linestring clips through the polygon boundary rather
-  than running cleanly alongside it.
+- **Query:** `ST_Touches`, `ST_Within`, `ST_Crosses` across
+  buildings/parks/roads.
+- **Result:** `ST_Touches` returns no rows. `ST_Within` confirms San Jose
+  Museum of Art is within Plaza de Cesar Chavez. `ST_Crosses` returns Santa
+  Clara Street against the Plaza boundary.
+- **Interpretation:** No modeled footprints share an edge, so `ST_Touches`
+  is empty as expected. For the `ST_Crosses` result: because the modeled
+  road follows the plaza edge, `ST_Intersects` or `ST_Touches` is more
+  semantically appropriate than `ST_Crosses` to describe this relationship —
+  `ST_Crosses` technically matched here only because the modeled linestring
+  clips through the polygon boundary rather than running cleanly alongside
+  it.
 
 ## Extra Credit: Visualizations
 
