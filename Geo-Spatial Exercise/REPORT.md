@@ -3,41 +3,73 @@
 **Hometown:** San Jose, CA (downtown core)
 **Database:** MySQL 8.0 (tested on `mysql Ver 26.7.0`, Homebrew) / `hometown_geo`
 
-## 1. Data Collection
+## Introduction
 
-Real-world downtown San Jose landmarks were used, with longitude/latitude
-coordinates approximated from their known real locations:
+San Jose, CA is my hometown and the largest city in the South Bay/Silicon
+Valley. For this exercise I modeled downtown San Jose's core civic and
+recreational landmarks: its three best-known downtown parks (Plaza de Cesar
+Chavez, Guadalupe River Park, Kelley Park), three major downtown streets
+(The Alameda, Santa Clara Street, Almaden Boulevard), and three prominent
+buildings (San Jose City Hall, SAP Center, San Jose Museum of Art). These
+were chosen because they are geographically clustered in and around
+downtown, which makes spatial relationships between them (containment,
+intersection, proximity) meaningful and checkable against real-world
+geography, rather than arbitrary/disconnected points.
 
-| Type | Name |
-|---|---|
-| Park | Plaza de Cesar Chavez |
-| Park | Guadalupe River Park |
-| Park | Kelley Park |
-| Road | The Alameda |
-| Road | Santa Clara Street |
-| Road | Almaden Boulevard |
-| Building | San Jose City Hall |
-| Building | SAP Center |
-| Building | San Jose Museum of Art |
+## Data Collection
 
-Coordinates are stored as (longitude, latitude) pairs, matching the WKT
-`POINT(lon lat)` convention used by `ST_GeomFromText`.
+**How/where obtained:** Coordinates (longitude, latitude) were derived from
+each landmark's known real-world location in downtown San Jose (e.g. San
+Jose City Hall at 200 E Santa Clara St, SAP Center at 525 W Santa Clara St,
+Plaza de Cesar Chavez between Market St and Almaden Blvd). Parks and
+buildings are represented as small bounding-box polygons around their real
+footprint; roads are represented as multi-point linestrings tracing their
+real path through downtown.
 
-## 2. Setting Up the Database
+**Data formats:** All geometry is stored as WKT (Well-Known Text) and
+inserted via `ST_GeomFromText`, the standard MySQL spatial input format.
+Three geometry types are used: `POLYGON` for parks/buildings, `LINESTRING`
+for roads, and `POINT` for ad hoc test locations in queries.
 
-Database `hometown_geo` was created with three tables — `parks` (`GEOMETRY`),
-`roads` (`LINESTRING`), and `buildings` (`POLYGON`) — each with a
-`SPATIAL INDEX` on its geometry column (see `schema.sql`).
+**Preprocessing:** No external GIS dataset was imported — coordinates were
+hand-derived to real-world precision (4 decimal places, ~11m resolution)
+rather than looked up from a shapefile/GeoJSON source. No SRID/geography
+type was used, so all spatial functions operate on plain Cartesian degree
+coordinates (see the Database Design and Spatial Queries notes below on what
+this means for distance/area units).
 
-## 3. Querying Geo-Spatial Data
+## Database Design
+
+Three tables, each with one geometry column backed by a `SPATIAL INDEX`
+(see `schema.sql`):
+
+| Table | Geometry column | Type | Why |
+|---|---|---|---|
+| `parks` | `area` | `GEOMETRY` | Declared generically (not `POLYGON`) since a future park could be modeled as a `MULTIPOLYGON` (e.g. a park split by a road) without a schema change |
+| `roads` | `path` | `LINESTRING` | Roads are inherently linear features, not areas |
+| `buildings` | `footprint` | `POLYGON` | Building footprints are always a single closed ring |
+
+Each geometry column is `NOT NULL` (every row must have a location — there's
+no use case for a park/road/building without one) and has a `SPATIAL INDEX`
+so `ST_Contains`/`ST_Intersects`/`ST_Distance` queries can use a spatial
+R-tree index lookup instead of a full table scan — necessary for these
+queries to scale past a handful of hand-entered rows.
+
+## Spatial Queries and Results
+
+### 1. Querying Geo-Spatial Data
 
 - All 3 parks round-trip correctly through `ST_AsText(area)`.
 - `ST_Contains(plaza_polygon, footprint)` correctly identifies **San Jose
   Museum of Art** as the one building located inside Plaza de Cesar Chavez —
   matching its real-world location directly adjacent to the plaza.
 
-## 4. Location Functions
+### 2. Location Functions
 
+- `ST_Centroid` (coordinate retrieval/conversion) on each park's polygon
+  returns its geometric center point, e.g. Plaza de Cesar Chavez →
+  `POINT(-121.8899 37.33355)` — a single representative point useful for
+  map pins or proximity sorting without needing the full polygon.
 - Distance between San Jose City Hall and SAP Center: **0.0158 degrees**
   (point-to-point, straight-line). Since coordinates are in degrees rather
   than meters, this is a relative/comparative measure, not a literal
@@ -48,13 +80,13 @@ Database `hometown_geo` was created with three tables — `parks` (`GEOMETRY`),
   (distance ≈ 0.00383 degrees), which matches reality — City Hall is only a
   few blocks from the Plaza.
 
-## 5. Distance Calculations
+### 3. Distance Calculations
 
 Roads within 0.005 degrees of Plaza de Cesar Chavez: **all three** (The
 Alameda, Santa Clara Street, Almaden Boulevard) — expected, since all three
 streets run through or near downtown San Jose where the plaza sits.
 
-## 6. Area and Perimeter
+### 4. Area and Perimeter
 
 | Feature | Area (deg²) | Notes |
 |---|---|---|
@@ -67,7 +99,7 @@ has no native `ST_Perimeter()`): City Hall and Museum of Art ≈ 0.002 deg,
 SAP Center ≈ 0.004 deg (SAP Center's footprint is modeled larger, matching
 its real status as a full arena vs. the smaller office/museum buildings).
 
-## 7. Intersection and Containment
+### 5. Intersection and Containment
 
 - `ST_Intersects(footprint, path)` found **San Jose City Hall** intersecting
   a road path — City Hall's real address (200 E Santa Clara St) sits right
@@ -75,7 +107,7 @@ its real status as a full arena vs. the smaller office/museum buildings).
 - `ST_Contains(area, POINT)` correctly placed a test point inside
   **Plaza de Cesar Chavez** only, not the other two parks.
 
-## 8. Buffering
+### 6. Buffering
 
 A 0.001-degree buffer (~100 m) was generated around each park polygon using
 `ST_Buffer`. Buffering San Jose Museum of Art's buildings query
@@ -83,7 +115,7 @@ A 0.001-degree buffer (~100 m) was generated around each park polygon using
 Art** as within the buffered Plaza boundary — consistent with it being the
 closest building to the plaza.
 
-## 9. Analysis Functions
+### 7. Analysis Functions
 
 - `ST_Union` of Plaza de Cesar Chavez + Guadalupe River Park produced a
   `MULTIPOLYGON` (the two parks are disjoint/non-adjacent in this model,
@@ -91,7 +123,7 @@ closest building to the plaza.
 - `ST_Difference` of the same two parks returned the full Plaza polygon
   unchanged, confirming the two shapes don't overlap.
 
-## 10. Relationship Functions
+### 8. Relationship Functions
 
 - `ST_Touches`: no buildings reported as touching a park boundary exactly
   (expected — none of the modeled footprints share an edge).
@@ -100,6 +132,13 @@ closest building to the plaza.
 - `ST_Crosses`: **Santa Clara Street** crosses a park boundary (Plaza de
   Cesar Chavez) — matches reality, since Santa Clara Street runs along the
   plaza's edge downtown.
+
+## Extra Credit: Visualizations
+
+Not completed in this pass — no map/diagram was generated. A follow-up could
+plot these polygons/linestrings on a real San Jose basemap (e.g. via QGIS or
+a Python `folium`/`geopandas` script reading `ST_AsGeoJSON()` output from
+each table) to visually confirm the containment/intersection results above.
 
 ## Conclusion
 
@@ -112,3 +151,4 @@ San Jose. The main practical lesson was that MySQL spatial functions
 degrees here, since no SRID/geography type was used — so results need a
 rough degrees-to-meters conversion (~111 km/degree latitude, ~88 km/degree
 longitude at this latitude) to be interpreted as real-world measurements.
+

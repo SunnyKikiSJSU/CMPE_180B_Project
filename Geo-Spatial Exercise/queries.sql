@@ -39,12 +39,16 @@ WHERE ST_Contains(ST_GeomFromText('POLYGON((-121.8907 37.3328, -121.8891 37.3328
 -- Part 4: Using Location Functions
 -- =====================================================================
 
--- 4.1 Calculating Distance Between Two Points (San Jose City Hall vs SAP Center, in degrees)
+-- 4.1 Coordinate Retrieval and Conversion: centroid of each park
+SELECT name, ST_AsText(ST_Centroid(area)) AS centroid
+FROM parks;
+
+-- 4.2 Calculating Distance Between Two Points (San Jose City Hall vs SAP Center, in degrees)
 SELECT ST_Distance(
     ST_GeomFromText('POINT(-121.8863 37.3374)'),
     ST_GeomFromText('POINT(-121.9014 37.3327)')) AS distance;
 
--- 4.2 Finding the Nearest Park to a Building
+-- 4.3 Finding the Nearest Park to a Building
 SELECT p.name, ST_Distance(b.footprint, p.area) AS distance
 FROM buildings b, parks p
 WHERE b.name = 'San Jose City Hall'

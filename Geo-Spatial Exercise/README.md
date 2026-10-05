@@ -16,7 +16,7 @@ functions using real geospatial data for my hometown, **San Jose, CA**, with
   longitude/latitude coordinates.
 - [queries.sql](queries.sql) — Parts 3-10 spatial queries:
   - Part 3 — Querying geo-spatial data (`ST_AsText`, `ST_Contains`)
-  - Part 4 — Location functions (`ST_Distance` between points, nearest park)
+  - Part 4 — Location functions (`ST_Centroid`, `ST_Distance`, nearest park)
   - Part 5 — Distance calculations (roads within a distance of a park)
   - Part 6 — Area and perimeter (`ST_Area`, `ST_Length` on `ST_ExteriorRing`
     since MySQL has no built-in `ST_Perimeter`)
