@@ -1,20 +1,21 @@
 # Geo-Spatial Exercise — Findings Report
 
 **Hometown:** San Jose, CA (downtown core)
-**Database:** MySQL 8.0 (tested on `mysql Ver 26.7.0`, Homebrew) / `hometown_geo`
+**Database:** MySQL Server 8.0, tested using the Homebrew MySQL client / `hometown_geo`
 
 ## Introduction
 
 San Jose, CA is my hometown and the largest city in the South Bay/Silicon
-Valley. For this exercise I modeled downtown San Jose's core civic and
-recreational landmarks: its three best-known downtown parks (Plaza de Cesar
-Chavez, Guadalupe River Park, Kelley Park), three major downtown streets
-(The Alameda, Santa Clara Street, Almaden Boulevard), and three prominent
-buildings (San Jose City Hall, SAP Center, San Jose Museum of Art). These
-were chosen because they are geographically clustered in and around
-downtown, which makes spatial relationships between them (containment,
-intersection, proximity) meaningful and checkable against real-world
-geography, rather than arbitrary/disconnected points.
+Valley. For this exercise I modeled civic and recreational landmarks
+around San Jose: three San Jose parks selected for spatial analysis (Plaza
+de Cesar Chavez, Guadalupe River Park, Kelley Park — note that Kelley Park
+is not part of the downtown core, unlike the other two), three major
+downtown streets (The Alameda, Santa Clara Street, Almaden Boulevard), and
+three prominent buildings (San Jose City Hall, SAP Center, San Jose Museum
+of Art). These were chosen because several are geographically clustered in
+and around downtown, which makes spatial relationships between them
+(containment, intersection, proximity) meaningful and checkable against
+real-world geography, rather than arbitrary/disconnected points.
 
 ## Data Collection
 
@@ -31,12 +32,20 @@ inserted via `ST_GeomFromText`, the standard MySQL spatial input format.
 Three geometry types are used: `POLYGON` for parks/buildings, `LINESTRING`
 for roads, and `POINT` for ad hoc test locations in queries.
 
-**Preprocessing:** No external GIS dataset was imported — coordinates were
-hand-derived to real-world precision (4 decimal places, ~11m resolution)
-rather than looked up from a shapefile/GeoJSON source. No SRID/geography
-type was used, so all spatial functions operate on plain Cartesian degree
-coordinates (see the Database Design and Spatial Queries notes below on what
-this means for distance/area units).
+**Preprocessing:** Landmark locations were cross-checked using OpenStreetMap
+and official San Jose city location information. The geometries were then
+simplified into approximate WKT polygons and linestrings for this exercise
+(4 decimal places, ~11m resolution) rather than imported wholesale from a
+shapefile/GeoJSON source — so each polygon is an approximate bounding box
+around the real footprint, not an exact real-world boundary. No SRID/
+geography type was used (SRID 0), so all spatial functions operate on plain
+Cartesian degree coordinates (see the Database Design and Spatial Queries
+notes below on what this means for distance/area units).
+
+Because the polygons are approximate bounding boxes rather than exact
+footprints, conclusions like "the Museum of Art is inside the plaza" are
+conclusions about this simplified model, not verified real-world survey
+facts.
 
 ## Database Design
 
@@ -51,9 +60,12 @@ Three tables, each with one geometry column backed by a `SPATIAL INDEX`
 
 Each geometry column is `NOT NULL` (every row must have a location — there's
 no use case for a park/road/building without one) and has a `SPATIAL INDEX`
-so `ST_Contains`/`ST_Intersects`/`ST_Distance` queries can use a spatial
-R-tree index lookup instead of a full table scan — necessary for these
-queries to scale past a handful of hand-entered rows.
+so relationship queries like `ST_Contains`/`ST_Intersects`/`ST_Within` can use
+a spatial R-tree index lookup instead of a full table scan as the tables grow.
+Note this doesn't automatically speed up every query — e.g. a plain
+`ST_Distance` between two arbitrary geometries still has to evaluate both
+argument geometries directly and isn't accelerated by the index the same way
+bounding-box relationship checks are.
 
 ## Spatial Queries and Results
 
@@ -109,11 +121,13 @@ its real status as a full arena vs. the smaller office/museum buildings).
 
 ### 6. Buffering
 
-A 0.001-degree buffer (~100 m) was generated around each park polygon using
-`ST_Buffer`. Buffering San Jose Museum of Art's buildings query
-(`buildings within buffered parks`) correctly returned **San Jose Museum of
-Art** as within the buffered Plaza boundary — consistent with it being the
-closest building to the plaza.
+A 0.001-degree buffer was generated around each park polygon using
+`ST_Buffer`. A 0.001-degree buffer is approximately 88–111 meters in San
+Jose, depending on direction. Since the data uses SRID 0 and degree
+coordinates, this is only an approximation. Buffering San Jose Museum of
+Art's buildings query (`buildings within buffered parks`) correctly
+returned **San Jose Museum of Art** as within the buffered Plaza
+boundary — consistent with it being the closest building to the plaza.
 
 ### 7. Analysis Functions
 
@@ -129,9 +143,12 @@ closest building to the plaza.
   (expected — none of the modeled footprints share an edge).
 - `ST_Within`: San Jose Museum of Art confirmed within Plaza de Cesar
   Chavez's polygon.
-- `ST_Crosses`: **Santa Clara Street** crosses a park boundary (Plaza de
-  Cesar Chavez) — matches reality, since Santa Clara Street runs along the
-  plaza's edge downtown.
+- `ST_Crosses`: Santa Clara Street intersects the boundary of Plaza de
+  Cesar Chavez. Because the modeled road follows the plaza edge,
+  `ST_Intersects` or `ST_Touches` is more appropriate than `ST_Crosses` to
+  describe this relationship — `ST_Crosses` technically matched here only
+  because the modeled linestring clips through the polygon boundary rather
+  than running cleanly alongside it.
 
 ## Extra Credit: Visualizations
 
