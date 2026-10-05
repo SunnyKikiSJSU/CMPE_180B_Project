@@ -1,8 +1,9 @@
 -- Part 1: Setting Up the Geo-Spatial Database
--- Geoville: a fictional city used to practice MySQL spatial data types and functions.
+-- Hometown: San Jose, CA. Coordinates below (lon, lat) are approximate
+-- real-world locations of downtown San Jose landmarks.
 
-CREATE DATABASE IF NOT EXISTS geoville;
-USE geoville;
+CREATE DATABASE IF NOT EXISTS hometown_geo;
+USE hometown_geo;
 
 DROP TABLE IF EXISTS buildings;
 DROP TABLE IF EXISTS roads;
