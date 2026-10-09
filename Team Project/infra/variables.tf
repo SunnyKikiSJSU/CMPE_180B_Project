@@ -47,9 +47,10 @@ variable "db_username" {
 }
 
 variable "db_password" {
-  description = "Master password for the RDS instance. Pass via a gitignored *.auto.tfvars file or TF_VAR_db_password env var — never commit it."
+  description = "Master password for the RDS instance. Leave null (default) to auto-generate a random password stored only in Secrets Manager. If set, pass via a gitignored *.auto.tfvars file or TF_VAR_db_password env var — never commit it."
   type        = string
   sensitive   = true
+  default     = null
 }
 
 variable "backend_security_group_id" {

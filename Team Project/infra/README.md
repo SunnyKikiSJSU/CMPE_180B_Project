@@ -7,20 +7,18 @@ Provisions the Amazon RDS instance for the team project's data tier.
 ```bash
 cd "Team Project/infra"
 terraform init
-terraform plan   -var="db_password=<pick-a-strong-password>"
-terraform apply  -var="db_password=<pick-a-strong-password>"
+terraform plan
+terraform apply
 ```
 
-Or, to avoid typing the password every time, create a gitignored
-`secrets.auto.tfvars` file next to these files:
+No password needs to be supplied — if `db_password` is left unset, a random
+24-character password is generated automatically and stored **only** in AWS
+Secrets Manager (see `db_secret_arn` output). If you want to pin a specific
+password instead, pass `-var="db_password=<...>"` or set it in a gitignored
+`secrets.auto.tfvars` file.
 
-```hcl
-db_password = "<pick-a-strong-password>"
-```
-
-Terraform loads `*.auto.tfvars` automatically. **Never commit this file** —
-it's already covered by `.gitignore` here, along with `.terraform/` and
-`*.tfstate*` (the state file contains the password in plaintext).
+`.terraform/` and `*.tfstate*` are gitignored — the state file still contains
+the password in plaintext, so never commit it regardless.
 
 ## What this creates
 
@@ -32,14 +30,22 @@ it's already covered by `.gitignore` here, along with `.terraform/` and
   - specific CIDR blocks (`allowed_cidr_blocks`) — use this only for local
     development convenience, not for the real deployed backend.
 
+## Secrets & IAM
+
+- **`aws_secretsmanager_secret.db`** stores `{engine, host, port, dbname, username, password}` as a single JSON secret — this is the only place the password lives outside Terraform state.
+- **`aws_iam_role.backend`** + **`aws_iam_instance_profile.backend`** grant read-only access to exactly that one secret (`secretsmanager:GetSecretValue`), nothing else. Attach `backend_instance_profile_name` to whatever EC2 instance(s) run the backend.
+- If the backend ends up on ECS/Lambda instead of EC2 rather than plain EC2, reuse `aws_iam_policy.read_db_secret` with a different assume-role principal instead of the EC2 instance profile.
+- The backend's runtime code should call `secretsmanager:GetSecretValue` on `db_secret_arn` at startup — **no DB credentials should ever be passed as plain environment variables, command-line args, or committed config.**
+
 ## Wiring up the backend
 
-1. Deploy this (`terraform apply`), note the `db_endpoint` output.
-2. Give the backend's security group ID to `backend_security_group_id` (or
+1. Deploy this (`terraform apply`).
+2. Attach `backend_instance_profile_name` to the backend's EC2 instance(s).
+3. Give the backend's security group ID to `backend_security_group_id` (or
    add your dev IP's CIDR to `allowed_cidr_blocks` for local testing) and
    `terraform apply` again.
-3. The backend is the **only** tier that should hold the DB
-   endpoint/username/password — never pass these to the frontend.
+4. The backend is the **only** tier that should ever read `db_secret_arn` —
+   never pass DB credentials to the frontend.
 
 ## Variables worth customizing
 
