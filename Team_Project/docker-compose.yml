@@ -1,0 +1,81 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-book_metaverse}
+      POSTGRES_USER: ${POSTGRES_USER:-book_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - book_net
+
+  migrate:
+    image: migrate/migrate:v4.18.3
+    profiles:
+      - tools # A service with a profile does not start during a plain, X docker compose up
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./database/migrations:/migrations:ro
+    command:
+      - "-path=/migrations"
+      - "-database=postgres://${POSTGRES_USER:-book_app}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-book_metaverse}?sslmode=disable"
+      - "up"
+    networks:
+      - book_net
+
+  seed:
+    image: postgres:18-alpine
+    profiles:
+      - tools
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: ${POSTGRES_DB:-book_metaverse}
+      PGUSER: ${POSTGRES_USER:-book_app}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - ./database/seeds:/seeds:ro
+    entrypoint:
+      - /bin/sh
+      - -c
+    command:
+      - |
+        set -eu
+        found=0
+        for file in /seeds/*.sql; do
+          if [ ! -f "$$file" ]; then
+            continue
+          fi
+          found=1
+          echo "Applying seed file: $$file"
+          psql -v ON_ERROR_STOP=1 --file "$$file"
+        done
+        if [ "$$found" -eq 0 ]; then
+          echo "No seed files found in /seeds"
+        fi
+    networks:
+      - book_net
+
+volumes:
+  postgres_data:
+
+networks:
+  book_net:
+    driver: bridge

@@ -49,6 +49,9 @@ the password in plaintext, so never commit it regardless.
 
 ## Variables worth customizing
 
-See [`variables.tf`](variables.tf) — in particular `db_engine` (`mysql` or
-`postgres`), `db_instance_class`, and `db_allocated_storage_gb`. Defaults are
-sized for Free Tier eligibility (`db.t4g.micro`, 20 GB, single-AZ).
+See [`variables.tf`](variables.tf) — in particular `db_engine`,
+`db_engine_version`, `db_instance_class`, and `db_allocated_storage_gb`. The
+database defaults to PostgreSQL 18 (`db_engine = "postgres"`,
+`db_engine_version = "18"`). Change the engine and version together only if the
+course requirement changes. The instance defaults are sized for Free Tier
+eligibility (`db.t4g.micro`, 20 GB, single-AZ).

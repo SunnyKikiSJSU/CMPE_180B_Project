@@ -11,15 +11,15 @@ variable "project_name" {
 }
 
 variable "db_engine" {
-  description = "RDS engine (mysql or postgres)."
+  description = "RDS engine. Defaults to PostgreSQL for the Book Metaverse Portal; override only if course requirements change."
   type        = string
-  default     = "mysql"
+  default     = "postgres"
 }
 
 variable "db_engine_version" {
-  description = "Engine version. Leave default unless a specific version is required."
+  description = "RDS engine version. Defaults to PostgreSQL 18; change this together with db_engine if the engine is overridden."
   type        = string
-  default     = "8.0"
+  default     = "18"
 }
 
 variable "db_instance_class" {
