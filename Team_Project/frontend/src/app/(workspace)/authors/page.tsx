@@ -1,0 +1,2 @@
+import { SectionPage } from "@/components/SectionPage";
+export default function AuthorsPage() { return <SectionPage eyebrow="Discover" title="Authors & categories" description="Browse normalized author and category relationships without duplicate catalog data." icon="✦" emptyTitle="No authors or categories yet" emptyDescription="Once catalog metadata is imported, consistent author and category pages will be available here." filters={["Author or category", "Sort by"]} />; }

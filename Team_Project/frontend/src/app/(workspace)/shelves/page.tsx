@@ -1,0 +1,2 @@
+import { SectionPage } from "@/components/SectionPage";
+export default function ShelvesPage() { return <SectionPage eyebrow="Organize" title="My shelves" description="Keep your reading lists, status, and personal collections in one organized place." icon="▤" emptyTitle="No shelves created yet" emptyDescription="Create shelves for Want to read, Currently reading, Completed, or any custom collection." action="Create a shelf" href="/shelves" filters={["All shelf types", "Recently updated"]} />; }

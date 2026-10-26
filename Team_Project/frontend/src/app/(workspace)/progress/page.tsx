@@ -1,0 +1,2 @@
+import { SectionPage } from "@/components/SectionPage";
+export default function ProgressPage() { return <SectionPage eyebrow="Track" title="Reading progress" description="Track status, pages, history, and the small milestones that keep reading moving." icon="◷" emptyTitle="Your progress timeline is empty" emptyDescription="When you start reading a book, page progress and reading history will be recorded here." filters={["All statuses", "This month", "Sort by"]} />; }
