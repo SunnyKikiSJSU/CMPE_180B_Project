@@ -2,7 +2,7 @@ services:
   postgres:
     image: postgres:18-alpine
     restart: unless-stopped
-    environment:
+    environment: # These environment variables are used by the official PostgreSQL Docker image to automatically create the database and user.
       POSTGRES_DB: ${POSTGRES_DB:-book_metaverse}
       POSTGRES_USER: ${POSTGRES_USER:-book_app}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
@@ -21,6 +21,36 @@ services:
     networks:
       - book_net
 
+  api:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      APP_ENV: local
+      PORT: 8080
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-book_metaverse}
+      DB_USER: ${POSTGRES_USER:-book_app}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      DB_SSLMODE: disable
+      JWT_SECRET: ${JWT_SECRET:-local-development-secret}
+    ports:
+      - "${API_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -qO- http://127.0.0.1:8080/readyz >/dev/null || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks:
+      - book_net
+
   migrate:
     image: migrate/migrate:v4.18.3
     profiles:
@@ -30,9 +60,9 @@ services:
         condition: service_healthy
     volumes:
       - ./database/migrations:/migrations:ro
-    command:
+    command: # up: apply pending migration, or print no change if applied
       - "-path=/migrations"
-      - "-database=postgres://${POSTGRES_USER:-book_app}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-book_metaverse}?sslmode=disable"
+      - "-database=${MIGRATE_DATABASE_URL:-}"
       - "up"
     networks:
       - book_net
@@ -55,6 +85,8 @@ services:
     entrypoint:
       - /bin/sh
       - -c
+    # psql uses the standard PostgreSQL environment variables when no explicit
+    # host, port, username, or database option is supplied.
     command:
       - |
         set -eu

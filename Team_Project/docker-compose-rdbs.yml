@@ -1,0 +1,96 @@
+services:
+  api:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      APP_ENV: rds
+      PORT: 8080
+      DB_HOST: ${RDS_HOST:?Set RDS_HOST in .env}
+      DB_PORT: ${RDS_PORT:-5432}
+      DB_NAME: ${RDS_DB:?Set RDS_DB in .env}
+      DB_USER: ${RDS_USER:?Set RDS_USER in .env}
+      DB_PASSWORD: ${RDS_PASSWORD:?Set RDS_PASSWORD in .env}
+      DB_SSLMODE: ${RDS_SSLMODE:-require}
+      JWT_SECRET: ${JWT_SECRET:-local-development-secret}
+    ports:
+      - "${API_PORT:-8080}:8080"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -qO- http://127.0.0.1:8080/readyz >/dev/null || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks:
+      - book_net
+
+  postgres-client:
+    image: postgres:18-alpine
+    profiles:
+      - client
+    stdin_open: true
+    tty: true
+    environment:
+      PGHOST: ${RDS_HOST:?Set RDS_HOST in .env}
+      PGPORT: ${RDS_PORT:-5432}
+      PGDATABASE: ${RDS_DB:?Set RDS_DB in .env}
+      PGUSER: ${RDS_USER:?Set RDS_USER in .env}
+      PGPASSWORD: ${RDS_PASSWORD:?Set RDS_PASSWORD in .env}
+      PGSSLMODE: ${RDS_SSLMODE:-require}
+    entrypoint:
+      - psql
+    networks:
+      - book_net
+
+  migrate:
+    image: migrate/migrate:v4.18.3
+    profiles:
+      - tools
+    volumes:
+      - ./database/migrations:/migrations:ro
+    command:
+      - "-path=/migrations"
+      - "-database=${RDS_DATABASE_URL:-}"
+      - "up"
+    networks:
+      - book_net
+
+  seed:
+    image: postgres:18-alpine
+    profiles:
+      - tools
+    environment:
+      PGHOST: ${RDS_HOST:?Set RDS_HOST in .env}
+      PGPORT: ${RDS_PORT:-5432}
+      PGDATABASE: ${RDS_DB:?Set RDS_DB in .env}
+      PGUSER: ${RDS_USER:?Set RDS_USER in .env}
+      PGPASSWORD: ${RDS_PASSWORD:?Set RDS_PASSWORD in .env}
+      PGSSLMODE: ${RDS_SSLMODE:-require}
+    volumes:
+      - ./database/seeds:/seeds:ro
+    entrypoint:
+      - /bin/sh
+      - -c
+    command:
+      - |
+        set -eu
+        found=0
+        for file in /seeds/*.sql; do
+          if [ ! -f "$$file" ]; then
+            continue
+          fi
+          found=1
+          echo "Applying seed file: $$file"
+          psql -v ON_ERROR_STOP=1 --file "$$file"
+        done
+        if [ "$$found" -eq 0 ]; then
+          echo "No seed files found in /seeds"
+        fi
+    networks:
+      - book_net
+
+networks:
+  book_net:
+    driver: bridge
