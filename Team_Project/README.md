@@ -142,11 +142,15 @@ rate limiting. The frontend and backend should share an OpenAPI contract.
 
 ## Local Development
 
-The Docker Compose environment currently provides the database tier:
+See [Development Setup](DEVELOPMENT.md) for complete teammate instructions for
+starting the backend with either local PostgreSQL or Amazon RDS.
+
+The Docker Compose environment currently provides:
 
 | Service | Responsibility |
 | --- | --- |
 | `postgres` | Local PostgreSQL database with a named volume |
+| `api` | Go backend connected to the selected database |
 | `migrate` | Applies versioned schema migrations (`tools` profile) |
 | `seed` | Loads reproducible demonstration data (`tools` profile) |
 
@@ -154,24 +158,24 @@ Containers should use health checks, multi-stage images, non-root users where
 practical, and environment variables documented in `.env.example`. Database
 credentials and other secrets must not be committed to the repository.
 
-Create the local environment file and start PostgreSQL:
+Run the project from WSL with Bash:
 
-```powershell
-Copy-Item .env.example .env
-docker compose up -d postgres
-docker compose ps
+```bash
+cd "/mnt/d/SJSU/Database System/project/CMPE_180B_Project/Team_Project"
+cp -n .env.example .env
+./scripts/dev.sh local
 ```
 
-Once migration or seed files exist, run the one-shot services with:
+`dev.sh` starts the database, applies migrations, loads seed data, builds the
+API, and waits for database readiness. To use Amazon RDS instead:
 
-```powershell
-docker compose --profile tools run --rm migrate
-docker compose --profile tools run --rm seed
+```bash
+./scripts/dev.sh rds
 ```
 
-The `api` and `web` services will be added to Compose after their application
-scaffolds and Dockerfiles are implemented. They are not included as empty or
-non-buildable placeholders.
+Both modes apply migrations and seed data before starting the API. They do not
+report success unless `/readyz` confirms an actual database connection. The
+frontend `web` container will be added after its Dockerfile is implemented.
 
 Redis may be added later for caching, sessions, rate limiting, or real-time
 features, but it is not required for the database MVP.
