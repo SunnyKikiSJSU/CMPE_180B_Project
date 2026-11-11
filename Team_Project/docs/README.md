@@ -1,12 +1,15 @@
 # Documentation
 
-Project documentation and evidence will be organized here.
+Project documentation and evidence are organized here.
 
-Planned sections:
+Current and planned sections:
 
-- `architecture/` for diagrams and design decisions.
-- `api/` for the OpenAPI contract and endpoint examples.
-- `database/` for the schema dictionary, ER diagram, and query catalog.
-- `diagrams/` for reviewed project diagrams.
+- `api/` for the OpenAPI contract, error catalog, and endpoint examples.
+  - `openapi.yaml` is the frozen request/response contract.
+  - `errors.md` documents the error envelope and SQLSTATE mapping.
+  - `examples.md` contains curl examples for each endpoint group.
+- `database/` for the schema dictionary and query catalog.
+- `diagrams/` for reviewed project diagrams, including `er-diagram.png`.
 - `runbooks/` for local, WSL, Docker, and AWS procedures.
 - `evidence/` for validation, concurrency, and performance results.
+- `architecture/` for architecture diagrams and design decisions.

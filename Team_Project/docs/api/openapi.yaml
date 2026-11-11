@@ -1,0 +1,2153 @@
+openapi: 3.0.3
+info:
+  title: Book Metaverse Portal API
+  version: 0.1.0
+  description: |
+    REST contract for the Book Metaverse Portal. PostgreSQL is the source of
+    truth; all access goes through this API. List endpoints return JSON arrays
+    and expose pagination through X-Total-Count, X-Page, and X-Page-Size.
+
+    Authentication uses the bm_session HttpOnly cookie or an
+    Authorization: Bearer <jwt> header. Personal endpoints are scoped to the
+    authenticated user; resources owned by another user return 404.
+servers:
+  - url: http://localhost:8080
+    description: Local development
+  - url: https://api.example.com
+    description: Deployed API (replace with the real host)
+tags:
+  - name: Health
+  - name: Authentication
+  - name: Users
+  - name: Catalog
+  - name: Ratings
+  - name: Reviews
+  - name: Shelves
+  - name: Progress
+  - name: Reports
+
+paths:
+  /healthz:
+    get:
+      tags: [Health]
+      operationId: health
+      summary: Liveness probe
+      description: Confirms the process is running without touching the database.
+      responses:
+        "200":
+          description: Process is alive.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [service, status]
+                properties:
+                  service:
+                    type: string
+                    example: book-metaverse-api
+                  status:
+                    type: string
+                    example: ok
+
+  /readyz:
+    get:
+      tags: [Health]
+      operationId: ready
+      summary: Readiness probe
+      description: Confirms the pool connects and the schema migration version is current.
+      responses:
+        "200":
+          description: Database connected and schema current.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  database:
+                    type: string
+                    example: connected
+                  status:
+                    type: string
+                    example: ready
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /:
+    get:
+      tags: [Health]
+      operationId: serviceInfo
+      summary: Service metadata
+      responses:
+        "200":
+          description: Service name and status.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service:
+                    type: string
+                  status:
+                    type: string
+
+  /api/auth/register:
+    post:
+      tags: [Authentication]
+      operationId: register
+      summary: Create an account and start a session
+      description: Creates the user, profile, and four default shelves in one transaction.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: Account created; session cookie set.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/auth/login:
+    post:
+      tags: [Authentication]
+      operationId: login
+      summary: Verify credentials and start a session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Authenticated; session cookie set.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/auth/logout:
+    post:
+      tags: [Authentication]
+      operationId: logout
+      summary: End the browser session
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Cookie cleared.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/auth/me:
+    get:
+      tags: [Authentication]
+      operationId: me
+      summary: Return the current session user
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current user.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/users/me:
+    get:
+      tags: [Users]
+      operationId: getMe
+      summary: Return the signed-in user's profile and counts
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Full user profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    patch:
+      tags: [Users]
+      operationId: updateMe
+      summary: Update editable profile fields
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProfileRequest"
+      responses:
+        "200":
+          description: Updated user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    delete:
+      tags: [Users]
+      operationId: deleteMe
+      summary: Permanently delete the account
+      description: Cascades to shelves, progress, history, ratings, and reviews.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirm]
+              properties:
+                confirm:
+                  type: boolean
+                  enum: [true]
+      responses:
+        "204":
+          description: Account deleted.
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/users/me/password:
+    put:
+      tags: [Users]
+      operationId: changePassword
+      summary: Change the password after verifying the current one
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "204":
+          description: Password changed.
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/users/me/reviews:
+    get:
+      tags: [Reviews]
+      operationId: listMyReviews
+      summary: List the caller's reviews
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          $ref: "#/components/responses/ReviewList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/users/me/ratings:
+    get:
+      tags: [Ratings]
+      operationId: listMyRatings
+      summary: List the caller's ratings
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          $ref: "#/components/responses/RatingList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/books:
+    get:
+      tags: [Catalog]
+      operationId: searchBooks
+      summary: Search and browse the public catalog
+      description: |
+        Search matches title, description, author names, and category names.
+        An empty q returns the selected sort order. Authentication is optional;
+        when present, myProgress and myRating are included on book detail, not
+        on list rows.
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+            maxLength: 200
+        - name: title
+          in: query
+          schema:
+            type: string
+        - name: authorId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: categoryId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [relevance, newest, rating, title, popular]
+            default: relevance
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          $ref: "#/components/responses/BookList"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+    post:
+      tags: [Catalog]
+      operationId: createBook
+      summary: Add a catalog record
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BookInput"
+      responses:
+        "201":
+          description: Created book.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Book"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/search:
+    get:
+      tags: [Catalog]
+      operationId: searchAlias
+      summary: Alias of GET /api/books
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          $ref: "#/components/responses/BookList"
+
+  /api/books/{bookId}:
+    parameters:
+      - $ref: "#/components/parameters/BookId"
+    get:
+      tags: [Catalog]
+      operationId: getBook
+      summary: Return a complete book detail
+      description: Includes authors, categories, rating summary, and the caller's progress/rating when authenticated.
+      responses:
+        "200":
+          description: Book detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Book"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Catalog]
+      operationId: updateBook
+      summary: Correct catalog metadata
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BookUpdate"
+      responses:
+        "200":
+          description: Updated book.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Book"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/books/{bookId}/ratings:
+    parameters:
+      - $ref: "#/components/parameters/BookId"
+    get:
+      tags: [Ratings]
+      operationId: getBookRatings
+      summary: Return the rating summary and 1-5 distribution
+      responses:
+        "200":
+          description: Rating summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RatingSummaryResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Ratings]
+      operationId: rateBook
+      summary: Create or replace the caller's rating
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RatingInput"
+      responses:
+        "200":
+          description: Rating upserted; summary triggers already ran.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rating"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Ratings]
+      operationId: deleteRating
+      summary: Remove the caller's rating
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Rating removed.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/books/{bookId}/reviews:
+    parameters:
+      - $ref: "#/components/parameters/BookId"
+    get:
+      tags: [Reviews]
+      operationId: listBookReviews
+      summary: List public reviews for a book
+      parameters:
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [newest, rating]
+            default: newest
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          $ref: "#/components/responses/ReviewList"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Reviews]
+      operationId: createReview
+      summary: Create the caller's review
+      description: One review per user per book; a duplicate returns 409.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewInput"
+      responses:
+        "201":
+          description: Review created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Review"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/books/{bookId}/review:
+    parameters:
+      - $ref: "#/components/parameters/BookId"
+    put:
+      tags: [Reviews]
+      operationId: upsertReviewAndRating
+      summary: Save a rating and review together
+      description: One transaction updates the rating, the review, and the cached summary.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewUpsertInput"
+      responses:
+        "200":
+          description: Combined review/rating result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewRatingResult"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/reviews/{reviewId}:
+    parameters:
+      - $ref: "#/components/parameters/ReviewId"
+    patch:
+      tags: [Reviews]
+      operationId: updateReview
+      summary: Edit the caller's review
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewInput"
+      responses:
+        "200":
+          description: Updated review.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Review"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Reviews]
+      operationId: deleteReview
+      summary: Delete the caller's review
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Review deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/authors:
+    get:
+      tags: [Catalog]
+      operationId: listAuthors
+      summary: List and search authors
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: Authors with book counts.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Author"
+          headers:
+            X-Total-Count:
+              $ref: "#/components/headers/XTotalCount"
+
+  /api/authors/{authorId}:
+    parameters:
+      - $ref: "#/components/parameters/AuthorId"
+    get:
+      tags: [Catalog]
+      operationId: getAuthor
+      summary: Return an author and their books
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: Author detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthorDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/categories:
+    get:
+      tags: [Catalog]
+      operationId: listCategories
+      summary: List and search categories
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: Categories with book counts.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Category"
+          headers:
+            X-Total-Count:
+              $ref: "#/components/headers/XTotalCount"
+
+  /api/categories/{categoryId}:
+    parameters:
+      - $ref: "#/components/parameters/CategoryId"
+    get:
+      tags: [Catalog]
+      operationId: getCategory
+      summary: Return a category and its books
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: Category detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CategoryDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/shelves:
+    get:
+      tags: [Shelves]
+      operationId: listShelves
+      summary: List the caller's shelves with book counts
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Status and custom shelves.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Shelf"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Shelves]
+      operationId: createShelf
+      summary: Create a custom shelf
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ShelfInput"
+      responses:
+        "201":
+          description: Shelf created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Shelf"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/shelves/{shelfId}:
+    parameters:
+      - $ref: "#/components/parameters/ShelfId"
+    patch:
+      tags: [Shelves]
+      operationId: renameShelf
+      summary: Rename a custom shelf
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 80
+      responses:
+        "200":
+          description: Renamed shelf.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Shelf"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+    delete:
+      tags: [Shelves]
+      operationId: deleteShelf
+      summary: Delete a custom shelf
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Shelf deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/shelves/{shelfId}/books:
+    parameters:
+      - $ref: "#/components/parameters/ShelfId"
+    get:
+      tags: [Shelves]
+      operationId: listShelfBooks
+      summary: List books on one shelf with progress metadata
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [recent, title]
+            default: recent
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          $ref: "#/components/responses/BookList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Shelves]
+      operationId: addShelfBook
+      summary: Add a book, or move it if this is a status shelf
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bookId]
+              properties:
+                bookId:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: Book added or moved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShelfBookResult"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/shelves/{shelfId}/books/{bookId}:
+    parameters:
+      - $ref: "#/components/parameters/ShelfId"
+      - $ref: "#/components/parameters/BookId"
+    patch:
+      tags: [Shelves]
+      operationId: moveShelfBook
+      summary: Move a book to another shelf
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [targetShelfId]
+              properties:
+                targetShelfId:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: Book moved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShelfBookResult"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Shelves]
+      operationId: removeShelfBook
+      summary: Remove a book from one shelf
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Book removed from the shelf.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/reading-progress:
+    get:
+      tags: [Progress]
+      operationId: listReadingProgress
+      summary: List the caller's reading progress
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/ReadingStatus"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: Progress records, most recently updated first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ReadingProgress"
+          headers:
+            X-Total-Count:
+              $ref: "#/components/headers/XTotalCount"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/reading-progress/{bookId}:
+    parameters:
+      - $ref: "#/components/parameters/BookId"
+    get:
+      tags: [Progress]
+      operationId: getReadingProgress
+      summary: Return progress for one book
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Progress record.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadingProgress"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Progress]
+      operationId: updateReadingProgress
+      summary: Partially update progress
+      description: Server recomputes percent and completion; reaches the last page => completed.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProgressUpdateRequest"
+      responses:
+        "200":
+          description: Updated progress.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadingProgress"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+    put:
+      tags: [Progress]
+      operationId: replaceReadingProgress
+      summary: Replace progress for one book
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProgressUpdateRequest"
+      responses:
+        "200":
+          description: Updated progress.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadingProgress"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+    delete:
+      tags: [Progress]
+      operationId: deleteReadingProgress
+      summary: Remove progress for one book
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Progress removed.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/reading-history:
+    get:
+      tags: [Progress]
+      operationId: listReadingHistory
+      summary: Return the append-only reading timeline
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: bookId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: History events, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ReadingHistoryEvent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/reports/reading-history:
+    get:
+      tags: [Reports]
+      operationId: readingReport
+      summary: Dashboard reading report
+      description: Matches the existing frontend ReadingReport type.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Reading report.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadingReport"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/reports/user-stats:
+    get:
+      tags: [Reports]
+      operationId: userStatsReport
+      summary: Detailed personal reading statistics
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        "200":
+          description: User statistics.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserStatsReport"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/reports/popular:
+    get:
+      tags: [Reports]
+      operationId: popularBooksReport
+      summary: Popular books in a time window
+      parameters:
+        - name: days
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 30
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+      responses:
+        "200":
+          description: Popular books.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PopularBook"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/reports/top-rated:
+    get:
+      tags: [Reports]
+      operationId: topRatedReport
+      summary: Highest-rated books with a minimum rating count
+      parameters:
+        - name: minRatings
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 1000
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+      responses:
+        "200":
+          description: Top-rated books.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TopRatedBook"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/reports/recommendations:
+    get:
+      tags: [Reports]
+      operationId: recommendationsReport
+      summary: Recommendations from the caller's categories
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+      responses:
+        "200":
+          description: Recommended books.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Recommendation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/reports/authors:
+    get:
+      tags: [Reports]
+      operationId: authorRankingsReport
+      summary: Author leaderboard
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Author rankings.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuthorRanking"
+
+  /api/reports/categories:
+    get:
+      tags: [Reports]
+      operationId: categoryRankingsReport
+      summary: Category leaderboard
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Category rankings.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CategoryRanking"
+
+  /api/reports/review-activity:
+    get:
+      tags: [Reports]
+      operationId: reviewActivityReport
+      summary: Daily review and rating counts
+      parameters:
+        - name: days
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 30
+      responses:
+        "200":
+          description: Daily activity.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ReviewActivityPoint"
+
+  /api/reports/queries:
+    get:
+      tags: [Reports]
+      operationId: reportQueryCatalog
+      summary: Return the safe report SQL catalog
+      description: Static query text only; no user-supplied SQL is executed.
+      responses:
+        "200":
+          description: Report catalog.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/QueryCatalogEntry"
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: bm_session
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      name: pageSize
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    BookId:
+      name: bookId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ShelfId:
+      name: shelfId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ReviewId:
+      name: reviewId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    AuthorId:
+      name: authorId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CategoryId:
+      name: categoryId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  headers:
+    XTotalCount:
+      description: Total number of rows matching the query.
+      schema:
+        type: integer
+    XPage:
+      description: Current page number.
+      schema:
+        type: integer
+    XPageSize:
+      description: Requested page size.
+      schema:
+        type: integer
+
+  responses:
+    ValidationError:
+      description: Invalid input.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Unauthorized:
+      description: Missing, invalid, or expired session.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Forbidden:
+      description: Authenticated but not allowed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    NotFound:
+      description: Resource does not exist or is not owned by the caller.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Conflict:
+      description: Duplicate resource or stale version.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    RateLimited:
+      description: Too many requests.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    ServiceUnavailable:
+      description: Database unavailable.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    BookList:
+      description: Paginated book list.
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/Book"
+      headers:
+        X-Total-Count:
+          $ref: "#/components/headers/XTotalCount"
+        X-Page:
+          $ref: "#/components/headers/XPage"
+        X-Page-Size:
+          $ref: "#/components/headers/XPageSize"
+    ReviewList:
+      description: Paginated review list.
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/Review"
+      headers:
+        X-Total-Count:
+          $ref: "#/components/headers/XTotalCount"
+        X-Page:
+          $ref: "#/components/headers/XPage"
+        X-Page-Size:
+          $ref: "#/components/headers/XPageSize"
+    RatingList:
+      description: Paginated rating list.
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/Rating"
+      headers:
+        X-Total-Count:
+          $ref: "#/components/headers/XTotalCount"
+        X-Page:
+          $ref: "#/components/headers/XPage"
+        X-Page-Size:
+          $ref: "#/components/headers/XPageSize"
+
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: CONFLICT
+        message:
+          type: string
+          example: A review for this book already exists.
+        details:
+          type: object
+          additionalProperties: true
+        requestId:
+          type: string
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/Error"
+
+    RegisterRequest:
+      type: object
+      required: [email, password, displayName]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+          format: password
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 80
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+    AuthResponse:
+      type: object
+      required: [user, accessToken]
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        accessToken:
+          type: string
+          description: Also set as the bm_session HttpOnly cookie.
+
+    UpdateProfileRequest:
+      type: object
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 80
+        avatarUrl:
+          type: string
+          format: uri
+          nullable: true
+        bio:
+          type: string
+          maxLength: 2000
+          nullable: true
+        favoriteGenre:
+          type: string
+          maxLength: 80
+          nullable: true
+    ChangePasswordRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword:
+          type: string
+          format: password
+        newPassword:
+          type: string
+          minLength: 8
+          maxLength: 128
+          format: password
+
+    UserProfile:
+      type: object
+      properties:
+        bio:
+          type: string
+          nullable: true
+        favoriteGenre:
+          type: string
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+    UserStats:
+      type: object
+      properties:
+        shelfCount:
+          type: integer
+        booksCompleted:
+          type: integer
+        reviewsWritten:
+          type: integer
+        ratingsGiven:
+          type: integer
+    User:
+      type: object
+      required: [id, email, displayName, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        displayName:
+          type: string
+        avatarUrl:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        profile:
+          $ref: "#/components/schemas/UserProfile"
+        stats:
+          $ref: "#/components/schemas/UserStats"
+
+    Author:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        bookCount:
+          type: integer
+    AuthorDetail:
+      allOf:
+        - $ref: "#/components/schemas/Author"
+        - type: object
+          properties:
+            books:
+              type: array
+              items:
+                $ref: "#/components/schemas/Book"
+    Category:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        bookCount:
+          type: integer
+    CategoryDetail:
+      allOf:
+        - $ref: "#/components/schemas/Category"
+        - type: object
+          properties:
+            books:
+              type: array
+              items:
+                $ref: "#/components/schemas/Book"
+
+    Book:
+      type: object
+      required: [id, title, author, authors, categories]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        author:
+          type: string
+          description: Primary author name retained for frontend compatibility.
+        authors:
+          type: array
+          items:
+            $ref: "#/components/schemas/Author"
+        categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/Category"
+        description:
+          type: string
+          nullable: true
+        publishedDate:
+          type: string
+          format: date
+          nullable: true
+        publisher:
+          type: string
+          nullable: true
+        pageCount:
+          type: integer
+          nullable: true
+        isbn13:
+          type: string
+          nullable: true
+        coverUrl:
+          type: string
+          nullable: true
+        averageRating:
+          type: number
+          format: double
+        ratingCount:
+          type: integer
+        reviewCount:
+          type: integer
+        myProgress:
+          allOf:
+            - $ref: "#/components/schemas/ReadingProgress"
+          nullable: true
+        myRating:
+          type: integer
+          minimum: 1
+          maximum: 5
+          nullable: true
+    BookInput:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 500
+        authors:
+          type: array
+          items:
+            type: string
+        categories:
+          type: array
+          items:
+            type: string
+        description:
+          type: string
+        publishedDate:
+          type: string
+          format: date
+        publisher:
+          type: string
+        pageCount:
+          type: integer
+          minimum: 1
+        isbn13:
+          type: string
+          pattern: "^[0-9]{13}$"
+        coverUrl:
+          type: string
+          format: uri
+        googleBooksId:
+          type: string
+    BookUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+        description:
+          type: string
+        publishedDate:
+          type: string
+          format: date
+        publisher:
+          type: string
+        pageCount:
+          type: integer
+          minimum: 1
+        isbn13:
+          type: string
+          pattern: "^[0-9]{13}$"
+        coverUrl:
+          type: string
+          format: uri
+
+    ReadingStatus:
+      type: string
+      enum: [want_to_read, reading, completed, paused]
+    ReadingProgress:
+      type: object
+      required: [bookId, status, currentPage, totalPages, updatedAt]
+      properties:
+        bookId:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/ReadingStatus"
+        currentPage:
+          type: integer
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0
+        percentComplete:
+          type: number
+          minimum: 0
+          maximum: 100
+        version:
+          type: integer
+          minimum: 1
+        updatedAt:
+          type: string
+          format: date-time
+        book:
+          $ref: "#/components/schemas/Book"
+    ProgressUpdateRequest:
+      type: object
+      properties:
+        currentPage:
+          type: integer
+          minimum: 0
+        percentComplete:
+          type: number
+          minimum: 0
+          maximum: 100
+        status:
+          $ref: "#/components/schemas/ReadingStatus"
+        version:
+          type: integer
+          minimum: 1
+          description: When supplied, a mismatch returns STALE_VERSION (409).
+    ReadingHistoryEvent:
+      type: object
+      required: [id, bookId, eventType, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        bookId:
+          type: string
+          format: uuid
+        bookTitle:
+          type: string
+        eventType:
+          type: string
+        fromStatus:
+          $ref: "#/components/schemas/ReadingStatus"
+        toStatus:
+          $ref: "#/components/schemas/ReadingStatus"
+        createdAt:
+          type: string
+          format: date-time
+
+    RatingSummary:
+      type: object
+      properties:
+        averageRating:
+          type: number
+          format: double
+        ratingCount:
+          type: integer
+        reviewCount:
+          type: integer
+    Rating:
+      type: object
+      required: [bookId, userId, value]
+      properties:
+        bookId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        value:
+          type: integer
+          minimum: 1
+          maximum: 5
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        summary:
+          $ref: "#/components/schemas/RatingSummary"
+    RatingInput:
+      type: object
+      required: [value]
+      properties:
+        value:
+          type: integer
+          minimum: 1
+          maximum: 5
+    RatingSummaryResponse:
+      type: object
+      properties:
+        averageRating:
+          type: number
+          format: double
+        ratingCount:
+          type: integer
+        distribution:
+          type: object
+          additionalProperties:
+            type: integer
+          example:
+            "1": 0
+            "2": 1
+            "3": 2
+            "4": 5
+            "5": 4
+
+    ReviewUser:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        avatarUrl:
+          type: string
+          nullable: true
+    Review:
+      type: object
+      required: [id, bookId, userId, body, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        bookId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        body:
+          type: string
+        title:
+          type: string
+          nullable: true
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+          nullable: true
+        user:
+          $ref: "#/components/schemas/ReviewUser"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ReviewInput:
+      type: object
+      required: [body]
+      properties:
+        title:
+          type: string
+          maxLength: 200
+        body:
+          type: string
+          minLength: 1
+          maxLength: 5000
+    ReviewUpsertInput:
+      type: object
+      required: [body]
+      properties:
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+        title:
+          type: string
+          maxLength: 200
+        body:
+          type: string
+          minLength: 1
+          maxLength: 5000
+    ReviewRatingResult:
+      type: object
+      properties:
+        review:
+          $ref: "#/components/schemas/Review"
+        rating:
+          $ref: "#/components/schemas/Rating"
+        summary:
+          $ref: "#/components/schemas/RatingSummary"
+
+    ShelfType:
+      type: string
+      enum: [want_to_read, currently_reading, finished, paused, custom]
+    Shelf:
+      type: object
+      required: [id, name, type, count]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        type:
+          $ref: "#/components/schemas/ShelfType"
+        count:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+    ShelfInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        type:
+          type: string
+          enum: [custom]
+          default: custom
+    ShelfBookResult:
+      type: object
+      properties:
+        shelfId:
+          type: string
+          format: uuid
+        bookId:
+          type: string
+          format: uuid
+        progress:
+          $ref: "#/components/schemas/ReadingProgress"
+        historyEvent:
+          type: string
+          example: shelf_moved
+
+    RecentActivity:
+      type: object
+      properties:
+        bookId:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/ReadingStatus"
+        currentPage:
+          type: integer
+        totalPages:
+          type: integer
+        updatedAt:
+          type: string
+          format: date-time
+    ReadingReport:
+      type: object
+      required: [booksRead, pagesRead, favoriteCategories, recentActivity]
+      properties:
+        booksRead:
+          type: integer
+        pagesRead:
+          type: integer
+        favoriteCategories:
+          type: array
+          items:
+            $ref: "#/components/schemas/Category"
+        recentActivity:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecentActivity"
+    UserStatsReport:
+      type: object
+      properties:
+        booksCompleted:
+          type: integer
+        booksInProgress:
+          type: integer
+        pagesRead:
+          type: integer
+        ratingsGiven:
+          type: integer
+        averageRating:
+          type: number
+          format: double
+        reviewsWritten:
+          type: integer
+    PopularBook:
+      type: object
+      properties:
+        bookId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        coverUrl:
+          type: string
+          nullable: true
+        primaryAuthor:
+          type: string
+        shelfAdds:
+          type: integer
+        ratings:
+          type: integer
+        averageRating:
+          type: number
+          format: double
+        score:
+          type: integer
+    TopRatedBook:
+      type: object
+      properties:
+        bookId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        coverUrl:
+          type: string
+          nullable: true
+        primaryAuthor:
+          type: string
+        averageRating:
+          type: number
+          format: double
+        ratingCount:
+          type: integer
+    Recommendation:
+      type: object
+      properties:
+        bookId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        coverUrl:
+          type: string
+          nullable: true
+        primaryAuthor:
+          type: string
+        score:
+          type: integer
+        averageRating:
+          type: number
+          format: double
+    AuthorRanking:
+      type: object
+      properties:
+        authorId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        bookCount:
+          type: integer
+        ratingCount:
+          type: integer
+        averageRating:
+          type: number
+          format: double
+        ranking:
+          type: integer
+    CategoryRanking:
+      type: object
+      properties:
+        categoryId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        bookCount:
+          type: integer
+        ratingCount:
+          type: integer
+        averageRating:
+          type: number
+          format: double
+        ranking:
+          type: integer
+    ReviewActivityPoint:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        reviews:
+          type: integer
+        ratings:
+          type: integer
+    QueryCatalogEntry:
+      type: object
+      properties:
+        id:
+          type: string
+          example: q05
+        name:
+          type: string
+        endpoint:
+          type: string
+        sql:
+          type: string
