@@ -1,0 +1,13 @@
+# Claude Code project-local settings (personal, not shared)
+.claude/settings.local.json
+
+# Local environment and secrets
+.env
+.env.local
+
+# Common local/build artifacts
+.DS_Store
+Thumbs.db
+*.log
+
+AGENTS.md
