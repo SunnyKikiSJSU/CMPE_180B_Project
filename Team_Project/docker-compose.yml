@@ -62,7 +62,7 @@ services:
       - ./database/migrations:/migrations:ro
     command: # up: apply pending migration, or print no change if applied
       - "-path=/migrations"
-      - "-database=${MIGRATE_DATABASE_URL:-}"
+      - "-database=${MIGRATE_DATABASE_URL:-${DATABASE_URL:-}}"
       - "up"
     networks:
       - book_net
@@ -102,6 +102,26 @@ services:
         if [ "$$found" -eq 0 ]; then
           echo "No seed files found in /seeds"
         fi
+    networks:
+      - book_net
+
+  # Generates backend/internal/db from database/queries and
+  # database/schema/schema.sql. It needs no database, so it is a one-off
+  # "tools" service instead of a long-running container.
+  sqlc:
+    # Pinned for reproducible generated code. Update deliberately and review
+    # the generated diff before committing a newer version.
+    image: sqlc/sqlc:1.27.0
+    profiles:
+      - tools
+    working_dir: /src/backend
+    volumes:
+      # Mount only what sqlc reads. Generated output is written back into the
+      # bind-mounted backend/internal/db directory.
+      - ./backend:/src/backend
+      - ./database:/src/database:ro
+    command:
+      - generate
     networks:
       - book_net
 

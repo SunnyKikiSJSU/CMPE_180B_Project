@@ -1,0 +1,27 @@
+version: "2"
+sql:
+  - schema: "../database/schema/schema.sql"
+    queries: "../database/queries"
+    engine: "postgresql"
+    gen:
+      go:
+        package: "db"
+        out: "internal/db"
+        sql_package: "pgx/v5"
+        emit_interface: true
+        emit_empty_slices: true
+        emit_json_tags: false
+        overrides:
+          # API IDs are UUID strings in JSON and uuid.UUID in Go.
+          - db_type: "uuid"
+            go_type: "github.com/google/uuid.UUID"
+          # Rating averages are read as float64 by the API DTOs. Numeric values
+          # are still validated by PostgreSQL constraints.
+          - db_type: "pg_catalog.numeric"
+            go_type: "float64"
+          # Aggregate book authors/categories are returned as JSON text and
+          # decoded by the repository layer.
+          - db_type: "json"
+            go_type: "encoding/json.RawMessage"
+          - db_type: "jsonb"
+            go_type: "encoding/json.RawMessage"
