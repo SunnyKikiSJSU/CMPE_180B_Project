@@ -28,7 +28,12 @@ VALUES (
     'Seed profile used to verify database connectivity.',
     'Fantasy'
 )
-ON CONFLICT DO NOTHING;
+-- The users_create_defaults trigger already created an empty profile, so
+-- fill it in instead of skipping. Only empty profiles are touched on rerun.
+ON CONFLICT (user_id) DO UPDATE
+    SET bio = EXCLUDED.bio,
+        favorite_genre = EXCLUDED.favorite_genre
+    WHERE user_profiles.bio IS NULL;
 
 INSERT INTO authors (
     author_id,
@@ -103,21 +108,37 @@ INSERT INTO shelves (
 VALUES (
     '00000000-0000-4000-8000-000000000005',
     '00000000-0000-4000-8000-000000000001',
-    'Smoke Test Currently Reading',
-    'currently_reading'
+    'Smoke Test Custom Shelf',
+    'custom'
 )
 ON CONFLICT DO NOTHING;
 
+-- Fixed timestamps keep report output reproducible (see 003_demo_activity.sql).
 INSERT INTO user_shelf_items (
     shelf_id,
     book_id,
+    added_at,
     moved_at
 )
 VALUES (
     '00000000-0000-4000-8000-000000000005',
     '00000000-0000-4000-8000-000000000004',
-    CURRENT_TIMESTAMP
+    TIMESTAMPTZ '2026-10-01 12:00:00+00',
+    TIMESTAMPTZ '2026-10-01 12:00:00+00'
 )
+ON CONFLICT DO NOTHING;
+
+-- The progress row below is 'reading', so the book also belongs on the user's
+-- Currently reading status shelf (created by the users_create_defaults trigger).
+INSERT INTO user_shelf_items (shelf_id, book_id, added_at, moved_at)
+SELECT
+    s.shelf_id,
+    '00000000-0000-4000-8000-000000000004',
+    TIMESTAMPTZ '2026-10-01 12:00:00+00',
+    TIMESTAMPTZ '2026-10-02 12:00:00+00'
+FROM shelves s
+WHERE s.user_id = '00000000-0000-4000-8000-000000000001'
+  AND s.shelf_type = 'currently_reading'
 ON CONFLICT DO NOTHING;
 
 INSERT INTO reading_progress (
@@ -126,7 +147,8 @@ INSERT INTO reading_progress (
     book_id,
     percent_complete,
     current_page,
-    status
+    status,
+    updated_at
 )
 VALUES (
     '00000000-0000-4000-8000-000000000006',
@@ -134,7 +156,8 @@ VALUES (
     '00000000-0000-4000-8000-000000000004',
     42.50,
     85,
-    'reading'
+    'reading',
+    TIMESTAMPTZ '2026-10-02 12:00:00+00'
 )
 ON CONFLICT DO NOTHING;
 
@@ -144,7 +167,8 @@ INSERT INTO reading_history (
     book_id,
     event_type,
     from_status,
-    to_status
+    to_status,
+    created_at
 )
 VALUES (
     '00000000-0000-4000-8000-000000000007',
@@ -152,7 +176,8 @@ VALUES (
     '00000000-0000-4000-8000-000000000004',
     'progress_updated',
     'want_to_read',
-    'reading'
+    'reading',
+    TIMESTAMPTZ '2026-10-02 12:00:00+00'
 )
 ON CONFLICT DO NOTHING;
 
@@ -160,13 +185,17 @@ INSERT INTO ratings (
     rating_id,
     user_id,
     book_id,
-    rating_value
+    rating_value,
+    created_at,
+    updated_at
 )
 VALUES (
     '00000000-0000-4000-8000-000000000008',
     '00000000-0000-4000-8000-000000000001',
     '00000000-0000-4000-8000-000000000004',
-    4
+    4,
+    TIMESTAMPTZ '2026-10-03 12:00:00+00',
+    TIMESTAMPTZ '2026-10-03 12:00:00+00'
 )
 ON CONFLICT DO NOTHING;
 
@@ -175,14 +204,18 @@ INSERT INTO reviews (
     user_id,
     book_id,
     title,
-    review_text
+    review_text,
+    created_at,
+    updated_at
 )
 VALUES (
     '00000000-0000-4000-8000-000000000009',
     '00000000-0000-4000-8000-000000000001',
     '00000000-0000-4000-8000-000000000004',
     'Connectivity test review',
-    'This review verifies the review table and its relationships.'
+    'This review verifies the review table and its relationships.',
+    TIMESTAMPTZ '2026-10-03 12:00:00+00',
+    TIMESTAMPTZ '2026-10-03 12:00:00+00'
 )
 ON CONFLICT DO NOTHING;
 
