@@ -167,7 +167,15 @@ cp -n .env.example .env
 ```
 
 `dev.sh` starts the database, applies migrations, loads seed data, builds the
-API, and waits for database readiness. To use Amazon RDS instead:
+API, and waits for database readiness.
+
+Generate sqlc code without a local sqlc installation:
+
+```bash
+docker compose --env-file .env --file docker-compose.yml --project-name book-metaverse --profile tools run --rm sqlc
+```
+
+To use Amazon RDS instead:
 
 ```bash
 ./scripts/dev.sh rds

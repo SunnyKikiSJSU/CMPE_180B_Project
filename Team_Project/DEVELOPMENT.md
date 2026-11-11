@@ -25,6 +25,21 @@ cd "/mnt/d/SJSU/Database System/project/CMPE_180B_Project/Team_Project"
 The WSL path may be different on another computer. Use the path where the
 repository is mounted.
 
+### Install Go in WSL (one-time)
+
+The backend must be built and tested from WSL on a Windows host. Install a
+current Go SDK without sudo:
+
+```bash
+bash scripts/install-go-wsl.sh
+source ~/.bashrc
+go version
+```
+
+The script downloads the current Go release to `$HOME/go-sdk` and adds
+`GOROOT`, `GOPATH`, and `PATH` entries to `~/.bashrc`. Open a new WSL terminal
+if `go` is still not found.
+
 ## Environment File
 
 Create `.env` from the example if it does not already exist:
@@ -72,6 +87,66 @@ The RDS security group must allow TCP port `5432` from either:
 
 - The current public IP as a `/32` rule when connecting from a laptop.
 - The backend or EC2 security group when running inside the same VPC.
+
+## Generate Database Code (sqlc)
+
+The repository runs sqlc through a pinned Docker container, so a local sqlc
+installation is not required.
+
+From the `Team_Project` directory, after creating `.env`:
+
+```bash
+docker compose --env-file .env --file docker-compose.yml --project-name book-metaverse --profile tools run --rm sqlc
+```
+
+This writes `backend/internal/db` from `database/queries` and
+`database/schema/schema.sql`. The sqlc container needs no database and does not
+start PostgreSQL.
+
+After installing Go locally, resolve the generated imports:
+
+```bash
+cd backend
+go mod tidy
+```
+
+## Phase 1 Verification
+
+Run these from WSL in the `Team_Project` directory:
+
+```bash
+# 1. Generate backend/internal/db
+docker compose --env-file .env --file docker-compose.yml --project-name book-metaverse --profile tools run --rm sqlc
+
+# 2. Resolve generated imports
+cd backend
+go mod tidy
+cd ..
+
+# 3. Apply migrations, load seeds, and start the API
+./scripts/dev.sh local
+
+# 4. Confirm the seed volume
+docker compose --env-file .env --file docker-compose.yml --project-name book-metaverse exec postgres \
+  psql -U book_app -d book_metaverse -c \
+  "SELECT (SELECT count(*) FROM books) AS books,
+          (SELECT count(*) FROM authors) AS authors,
+          (SELECT count(*) FROM categories) AS categories,
+          (SELECT count(*) FROM users) AS users,
+          (SELECT count(*) FROM shelves) AS shelves,
+          (SELECT count(*) FROM ratings) AS ratings,
+          (SELECT count(*) FROM reviews) AS reviews;"
+```
+
+Expected: **201 books, 51 authors, 16 categories, 51 users, 301 ratings,
+301 reviews**, and a non-zero shelf count.
+
+Optional OpenAPI structure check:
+
+```bash
+python3 -m pip install --user pyyaml
+python3 scripts/validate_openapi.py docs/api/openapi.yaml
+```
 
 ## Start With Local PostgreSQL
 
