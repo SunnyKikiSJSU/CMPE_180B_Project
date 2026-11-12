@@ -13,8 +13,8 @@ uses explicit SQL so that schema design, joins, transactions, functions,
 triggers, indexes, and query plans remain visible and demonstrable.
 
 S3 is beyond the database MVP. The MVP stores catalog metadata and image URLs in
-PostgreSQL and may use Google Books cover URLs. S3-backed cover, avatar, or file
-uploads are a post-MVP extension.
+PostgreSQL; imported Google books use Google Books cover URLs. S3-backed cover,
+avatar, or file uploads are a post-MVP extension.
 
 ## Architecture
 
@@ -26,7 +26,7 @@ flowchart LR
     Web --> API[Go REST API]
     API --> DB[(PostgreSQL<br/>Amazon RDS)]
     API --> S3[(Amazon S3<br/>Post-MVP)]
-    API --> Books[Google Books API]
+    API -->|search and import| Books[Google Books API]
     API --> Logs[CloudWatch]
 ```
 
@@ -59,7 +59,8 @@ scaffold defaults to the same engine and version.
 | Authentication | JWT and Argon2id | Access control and password hashing |
 | Database | PostgreSQL 18 | Primary relational data store |
 | Cloud database | Amazon RDS for PostgreSQL 18 | Managed production database |
-| Search | PostgreSQL `tsvector`, `pg_trgm`, and GIN indexes | Full-text and fuzzy search |
+| Book discovery | Google Books API (server-side) | Live search; results imported on first use |
+| Library search | PostgreSQL `tsvector`, `pg_trgm`, and GIN indexes | Full-text and fuzzy search over stored books |
 | Optional search | `pgvector` | Semantic similarity search, if added later |
 | Object storage | Amazon S3 (post-MVP) | Self-hosted covers and future uploads |
 | Local development | Docker Compose | Reproducible application and database environment |
@@ -120,8 +121,33 @@ The implementation must demonstrate:
 - Reproducible validation cases with documented expected results.
 
 The API must use explicit SQL rather than hiding database behavior behind a
-high-level ORM. Google Books is used only for catalog import or refresh, not for
-normal application queries.
+high-level ORM.
+
+## Book Search and Google Books
+
+Users find books through the Google Books API. The Go API calls Google on the
+server, so the API key never reaches the browser, and a search stores nothing.
+When a user shelves, rates, reviews, or starts reading a result, the API
+imports that one volume into `books` (`POST /api/books/import`). From then on
+it is an ordinary local book with a `book_id` UUID, and every other feature
+reads PostgreSQL only.
+
+| Search | Endpoint | Data |
+| --- | --- | --- |
+| Google Books (discovery) | `GET /api/external/books` | Live Google results, not stored |
+| Library | `GET /api/books` | Books already in PostgreSQL: seed, imported, and user-created |
+
+- `books.google_books_id` holds the Google volume ID for deduplication; it is
+  never a key. `books.source` is `seed`, `google`, or `user`.
+- Google content is shown with Google attribution and a link to Google Books.
+- Google's own ratings are never stored; ratings and summaries come from this
+  site's users.
+- The 200 synthetic seed books stay for reports and evidence. No Google data
+  is committed to this repository.
+- If Google is down or out of quota, library search, shelves, progress,
+  reviews, and reports keep working.
+
+Details: `BACKEND_PLAN.md` sections 2 (item 11), 4.4, and 6.4.
 
 ## Application Layers
 
@@ -223,7 +249,8 @@ be exposed to the frontend.
 1. Create the Docker Compose development environment.
 2. Add PostgreSQL migrations and reproducible seed data.
 3. Implement Go authentication and database connectivity.
-4. Add catalog, author, category, and search features.
+4. Add catalog, author, category, library search, and Google Books search and
+   import.
 5. Add shelves, progress, and history with transactions.
 6. Add ratings, reviews, triggers, and rating-summary maintenance.
 7. Add reports, indexes, and before-and-after performance comparisons.
@@ -242,7 +269,8 @@ storage.
 - [x] Terraform database settings aligned with PostgreSQL 18.
 - [x] PostgreSQL Docker Compose environment and `.env.example`.
 - [ ] API and web services added to Compose after their Dockerfiles exist.
-- [ ] Database schema, migrations, and seed data.
+- [x] Database schema, migrations (`000001`-`000006`), and seed data.
+- [x] API contract (`docs/api/openapi.yaml`), including Google Books search and import.
 - [ ] Go API and authentication.
 - [ ] Next.js application.
 - [ ] Validation, concurrency, and performance evidence.

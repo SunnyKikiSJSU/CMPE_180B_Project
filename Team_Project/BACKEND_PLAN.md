@@ -17,7 +17,7 @@ the repository as it exists today, not against the earlier drafts.
 | --- | --- | --- |
 | Frontend | Next.js 15 app with 11 routes, shared components, `bookService`, `readingService`, `apiClient`, and domain types | Pages render static/empty states; no TanStack Query provider; login writes `localStorage`; only 8 API calls are declared |
 | Backend | `backend/cmd/server/main.go` with `/`, `/healthz`, `/readyz`; `database/sql` + pgx stdlib; Dockerfile | No auth, handlers, services, repositories, middleware, validation, or business endpoints |
-| Database | Migrations `000001`-`000004`, 64 named queries in `database/queries/`, reduced sqlc schema mirror, and seeds `001`-`004` | Phase 1 is verified on a clean database (2026-11-10); no schema dictionary or evidence package yet |
+| Database | Migrations `000001`-`000006`, 66 named queries in `database/queries/`, reduced sqlc schema mirror, and seeds `001`-`004` | Phase 1 is verified on a clean database (2026-11-10); `000006` (book sources for Google Books) verified the same day; no schema dictionary or evidence package yet |
 | Docker | `postgres`, `api`, `migrate`, `seed`, and pinned `sqlc` (`tools`) services | No `web` service; API has no auth/CORS configuration |
 | Docs | `docs/api/openapi.yaml`, `errors.md`, and `examples.md`; root `README.md`, `PLAN.md`, `DEVELOPMENT.md`, `infra/README.md` | No schema dictionary, query catalog, or evidence package |
 | Database engine | PostgreSQL 18 is implemented in the migration, Compose, and Terraform | The older Milestone Plan still says MySQL; that wording is superseded and must be corrected in docs |
@@ -66,6 +66,15 @@ work.
    records. There is no admin role in the MVP; document this limitation.
 10. **All workspace data is scoped to the authenticated user.** Ownership is
     enforced in SQL, not only in handlers.
+11. **Google Books is the discovery source; PostgreSQL stays the source of
+    truth.** Users search Google Books through the API
+    (`GET /api/external/books`); nothing is stored by a search. A result is
+    imported into `books` (`POST /api/books/import`) only when a user acts on
+    it, so every shelf, progress, rating, and review row still references a
+    local `book_id` UUID. The Google volume ID is stored in
+    `books.google_books_id` for deduplication and is never used as a key.
+    Library search (`GET /api/books`) keeps the PostgreSQL full-text search
+    for books already in the database. See Section 6.4.
 
 ---
 
@@ -84,6 +93,8 @@ Go API (chi)
       +-- handlers     parse HTTP, validate input, map errors
       +-- services     business rules, ownership, transactions
       +-- repositories typed sqlc queries + hand-written pgx for functions
+      +-- googlebooks  HTTPS client for Google Books search/volume lookup only
+      |                (server-side key, timeout, short in-memory cache)
       |
       v
 PostgreSQL 18
@@ -98,9 +109,12 @@ PostgreSQL 18
 ```text
 backend/
 ├── cmd/
-│   ├── server/main.go                 # Entry point: load config, open pool, build router, start/stop HTTP
-│   └── import-books/main.go           # One-off Google Books import CLI; never called by the running API
+│   └── server/main.go                 # Entry point: load config, open pool, build router, start/stop HTTP
 ├── internal/
+│   ├── googlebooks/
+│   │   ├── client.go                  # Search and GetVolume over HTTPS; key, country, timeout; maps Google errors
+│   │   ├── normalize.go               # Volume -> ExternalBook/import params (dates, HTML, ISBN, categories, https covers)
+│   │   └── cache.go                   # Small TTL cache of search pages to save quota
 │   ├── config/config.go               # Reads env vars, validates them, returns one typed Config value
 │   ├── database/
 │   │   ├── pool.go                    # Creates/closes the pgxpool and exposes ping/stat helpers
@@ -132,7 +146,7 @@ backend/
 │   ├── services/
 │   │   ├── auth.go                    # Register/login/logout rules, hashing, token issuance
 │   │   ├── users.go                   # Profile updates, password change, account deletion
-│   │   ├── catalog.go                 # Search filters, author/category upserts, catalog validation
+│   │   ├── catalog.go                 # Library search, author/category upserts, catalog validation, Google search + import
 │   │   ├── shelves.go                 # Shelf rules and fn_move_book_to_shelf transactions
 │   │   ├── progress.go                # Page/status validation and fn_update_reading_progress calls
 │   │   ├── reviews.go                 # Rating/review upserts and the combined review+rating transaction
@@ -140,7 +154,7 @@ backend/
 │   ├── handlers/
 │   │   ├── auth.go                    # HTTP layer for /api/auth/*
 │   │   ├── users.go                   # HTTP layer for /api/users/me*
-│   │   ├── books.go                   # HTTP layer for /api/books* and /api/search
+│   │   ├── books.go                   # HTTP layer for /api/books*, /api/books/import, /api/search, /api/external/books
 │   │   ├── authors.go                 # HTTP layer for /api/authors*
 │   │   ├── categories.go              # HTTP layer for /api/categories*
 │   │   ├── shelves.go                 # HTTP layer for /api/shelves*
@@ -191,8 +205,9 @@ Rules:
   (`book-metaverse`). Reject `alg: none` and any algorithm other than HS256.
 - Cookie flags: `HttpOnly; Path=/; SameSite=Lax`; add `Secure` when
   `COOKIE_SECURE=true`.
-- Public read endpoints: book search, book detail, reviews, rating summaries,
-  authors, categories, and public reports.
+- Public read endpoints: library search, Google Books search, book detail,
+  reviews, rating summaries, authors, categories, and public reports.
+- Importing a Google volume (`POST /api/books/import`) requires authentication.
 - All shelf, progress, review-write, rating-write, user, and personal report
   endpoints require authentication.
 
@@ -217,7 +232,9 @@ Rules:
 | `NOT_FOUND` | 404 | Resource does not exist or is not owned by the caller |
 | `CONFLICT` | 409 | Duplicate email, review, rating, shelf name, or status shelf |
 | `STALE_VERSION` | 409 | Optimistic progress version mismatch |
-| `RATE_LIMITED` | 429 | Login/register or general rate limit exceeded |
+| `RATE_LIMITED` | 429 | Login/register, Google search/import, or general rate limit exceeded |
+| `UPSTREAM_UNAVAILABLE` | 502 | Google Books failed, timed out, or returned an unusable response |
+| `UPSTREAM_RATE_LIMITED` | 503 | Server's Google Books quota exhausted; `Retry-After` set |
 | `DATABASE_UNAVAILABLE` | 503 | Pool cannot reach PostgreSQL |
 | `INTERNAL` | 500 | Unexpected failure; log details, never return them |
 
@@ -285,11 +302,13 @@ or admin routes in the MVP.
 
 | Method | Path | Auth | Purpose | Request / query | Response |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/api/books` | optional | Public catalog search/browse; powers Explore, Catalog, and dashboard search | `q,title,authorId,categoryId,sort,page,pageSize` | `Book[]` + pagination headers |
-| `GET` | `/api/search` | optional | Semantic alias of `/api/books` so clients can use one search URL | alias of `/api/books` | same |
+| `GET` | `/api/external/books` | optional | Google Books search for discovery; powers the main search on Explore, Catalog, and the dashboard. Stores nothing | `q,title,author,category,isbn,sort=relevance\|newest,page,pageSize<=40` | `ExternalBook[]` + pagination headers (`X-Total-Count` is Google's estimate) |
+| `POST` | `/api/books/import` | yes | Turns a Google result into a local book so it can be shelved, rated, reviewed, or tracked. Idempotent | `{googleBooksId}` | `201 Book` (imported) or `200 Book` (already in library) |
+| `GET` | `/api/books` | optional | Library search over books already in PostgreSQL (seed, imported, user-created); the "In the library" tab, filters, and evidence query `q01` | `q,title,authorId,categoryId,sort,page,pageSize` | `Book[]` + pagination headers |
+| `GET` | `/api/search` | optional | Alias of `/api/books` (library search) for the existing frontend URL | alias of `/api/books` | same |
 | `GET` | `/api/books/{bookId}` | optional | Book detail: metadata, authors, categories, summary, and the caller's progress/rating | — | `Book` with `myProgress`/`myRating` when authenticated |
-| `POST` | `/api/books` | yes | Adds a missing catalog record; used by "Import a book" or admin tooling | book metadata + `authors: string[]` + `categories: string[]` | `201 Book` |
-| `PATCH` | `/api/books/{bookId}` | yes | Corrects catalog metadata without touching user activity | partial metadata | `Book` |
+| `POST` | `/api/books` | yes | Adds a book by hand when Google has no match (`source = user`) | book metadata + `authors: string[]` + `categories: string[]` | `201 Book` |
+| `PATCH` | `/api/books/{bookId}` | yes | Corrects seed or user-created metadata without touching user activity; Google rows return `403` | partial metadata | `Book` |
 | `GET` | `/api/authors` | none | Lists/searches authors and their book counts for the Authors page and filters | `q,page,pageSize` | `Author[]` with `bookCount` |
 | `GET` | `/api/authors/{authorId}` | none | Author detail page with that author's books | `page,pageSize` | `Author` with `books: Book[]` |
 | `GET` | `/api/categories` | none | Lists/searches categories and counts for filters and the Authors & categories page | `q,page,pageSize` | `Category[]` with `bookCount` |
@@ -310,6 +329,9 @@ or admin routes in the MVP.
   "pageCount": 387,
   "isbn13": "9780385534635",
   "coverUrl": "https://...",
+  "source": "google",
+  "infoLink": "https://books.google.com/books?id=zyTCAlFPjgYC",
+  "publishedDatePrecision": "day",
   "averageRating": 4.5,
   "ratingCount": 12,
   "reviewCount": 4,
@@ -319,8 +341,49 @@ or admin routes in the MVP.
 ```
 
 `author` is the primary author name and is retained for compatibility with the
-existing `Book` TypeScript interface. `authors` and `categories` carry the full
-many-to-many data.
+existing `Book` TypeScript interface; it is `"Unknown author"` when a book has
+no authors. `authors` and `categories` carry the full many-to-many data.
+`source` is `seed`, `google`, or `user`. `infoLink` is built from
+`google_books_id` (`https://books.google.com/books?id=<id>`) and is set only
+for `source = google`; seed rows hold synthetic IDs and never get a link.
+`averageRating`, `ratingCount`, and `reviewCount` are always this site's own
+users' data, never Google's.
+
+`ExternalBook` shape (a Google search result; not stored):
+
+```json
+{
+  "googleBooksId": "zyTCAlFPjgYC",
+  "bookId": null,
+  "title": "The Night Circus",
+  "subtitle": null,
+  "authors": ["Erin Morgenstern"],
+  "categories": ["Fantasy"],
+  "description": "Plain text, HTML stripped",
+  "publishedDate": "2011-09-13",
+  "publisher": "Doubleday",
+  "pageCount": 387,
+  "isbn13": "9780385534635",
+  "coverUrl": "https://books.google.com/books/content?id=...",
+  "infoLink": "https://books.google.com/books?id=zyTCAlFPjgYC",
+  "source": "google"
+}
+```
+
+`bookId` is the local UUID when the volume, or a book with the same ISBN-13,
+is already in the library. The frontend uses it directly; otherwise it calls
+`POST /api/books/import` first and uses the returned `id`.
+
+Search and import flow:
+
+```text
+user types a query
+  -> GET /api/external/books        (Google, cached, nothing stored)
+  -> results with bookId or null
+user clicks "Add to shelf" / "Rate" / "Start reading" on a result
+  -> bookId null? POST /api/books/import {googleBooksId} -> Book.id
+  -> POST /api/shelves/{shelfId}/books {bookId}  (unchanged endpoints)
+```
 
 #### Ratings and reviews
 
@@ -490,6 +553,8 @@ the same book twice. This rule must be documented in the report SQL and in
 | `000002_search_and_extensions` | Makes keyword, author, and category search fast and typo-tolerant | `pg_trgm`; generated `books.search_vector`; GIN and trigram indexes |
 | `000003_domain_rules` | Moves derived and protected data rules into the database so every client path gets the same behavior | `updated_at` triggers; default-shelf/profile creation; partial unique status-shelf index; rating validation; rating/review summary maintenance; progress validation; history immutability; `version` columns; author/category dedupe and case-insensitive uniqueness; backfills |
 | `000004_reporting_indexes` | Keeps report and dashboard queries off sequential scans as the dataset grows | Additional composite/partial indexes used by reports and dashboards |
+| `000005_progress_and_history_fixes` | Fixes progress transitions, stale-version SQLSTATE, and cascade deletes found in Phase 1 testing | Replaces three `000003` functions |
+| `000006_book_sources` | Lets imported Google books be told apart from seed and user-created books, and stores partial Google dates | `books.source`, `books.published_date_precision`, `books.imported_at`, four CHECK constraints, backfill |
 
 Each migration must have a matching `.down.sql` and must leave a clean database
 in the same state as a fresh `migrate up`.
@@ -727,7 +792,8 @@ the expected version when the client supplies one.
   index on `lower(btrim(name))` after deduplicating rows and remapping
   `book_authors`.
 - `categories.name` is already unique, but matching is case-sensitive. Normalize
-  names (trim, collapse whitespace) in the importer and service before lookup.
+  names (trim, collapse whitespace) in the Google import and catalog service
+  before lookup.
   Add a case-insensitive unique index only if a dedupe pass is included.
 
 #### 000004 — Reporting indexes
@@ -745,6 +811,26 @@ the expected version when the client supplies one.
 Five of these indexes must be benchmarked before/after in a disposable database
 using `EXPLAIN (ANALYZE, BUFFERS)`; record the evidence in
 `docs/evidence/performance.md`.
+
+#### 000006 — Book sources
+
+| Column | Type | Rule |
+| --- | --- | --- |
+| `source` | `TEXT NOT NULL DEFAULT 'user'` | `seed`, `google`, or `user` |
+| `published_date_precision` | `TEXT` | `year`, `month`, or `day`; present exactly when `published_date` is present |
+| `imported_at` | `TIMESTAMPTZ` | Required when `source = 'google'` |
+
+Constraints: `books_source_valid`, `books_google_source_complete` (a Google
+row needs `google_books_id` and `imported_at`),
+`books_published_date_precision_valid`, and
+`books_published_date_precision_matches`.
+
+Backfill: rows whose `google_books_id` starts with `seed-book-` or
+`smoke-test-` become `seed`; any other row with a `google_books_id` becomes
+`google`; every existing date gets precision `day`. The existing
+`books_google_books_id_unique` and `books_isbn13_unique` constraints are the
+import deduplication keys; no new index is needed. `book_id` stays the only key
+that other tables reference.
 
 ### 5.2 Functions used by services
 
@@ -802,7 +888,7 @@ matching example result in `docs/database/query-catalog.md`.
 
 | ID | File | Purpose | Required SQL features |
 | --- | --- | --- | --- |
-| `q01` | `books.sql` | Search by title, author, category, keyword | CTE, `EXISTS`, FTS, trigram, relevance rank, many-to-many joins |
+| `q01` | `books.sql` | Library search by title, author, category, keyword (books already in PostgreSQL) | CTE, `EXISTS`, FTS, trigram, relevance rank, many-to-many joins |
 | `q02` | `books.sql` | Book detail with authors, categories, summary, recent reviews | Multiple joins, aggregates, `json_agg`, `LIMIT` subquery |
 | `q03` | `shelves.sql` | User shelf with metadata, progress, latest activity | Inner/outer joins, aggregate, `LEFT JOIN LATERAL` |
 | `q04` | `reports.sql` | Average ratings and counts by book/category/author | `GROUP BY`, `HAVING`, `FILTER` |
@@ -924,16 +1010,15 @@ Seed requirements:
   50 authors, 15 categories, 50 users, 500 shelf entries, and 300 combined
   ratings/reviews.
 
-An optional `backend/cmd/import-books` command can import real Google Books
-metadata:
+Seed books keep `source = 'seed'` and synthetic `seed-book-<n>` IDs. They stay
+because reports, rankings, recommendations, and the concurrency and
+performance evidence need a fixed, reproducible activity dataset; real Google
+books get activity only from real users.
 
-```text
-go run ./cmd/import-books -query "fantasy" -max 40
-```
-
-It reads `GOOGLE_BOOKS_API_KEY`, upserts books by `google_books_id`/`isbn13`,
-normalizes author and category names, and writes one transaction per book.
-Google Books is never called during normal application requests.
+No seed file may contain data fetched from Google Books. The repository is
+public, and committing Google content would redistribute it. There is no bulk
+import command: Google content enters a database only through
+`POST /api/books/import`, one volume at a time, when a user acts on it.
 
 ---
 
@@ -955,7 +1040,11 @@ Google Books is never called during normal application requests.
 | `JWT_TTL` | `60m` | 5m-24h |
 | `COOKIE_SECURE` | `false` local, `true` production | boolean |
 | `ALLOWED_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` | comma-separated exact origins |
-| `GOOGLE_BOOKS_API_KEY` | empty | required only for the importer |
+| `GOOGLE_BOOKS_API_KEY` | empty | server-side only; empty uses Google's small anonymous quota and logs a startup warning; required when `APP_ENV=production` |
+| `GOOGLE_BOOKS_BASE_URL` | `https://www.googleapis.com/books/v1` | must be `https` outside tests; tests point it at an `httptest` server |
+| `GOOGLE_BOOKS_COUNTRY` | `US` | ISO 3166-1 alpha-2; sent as `country=` to avoid `403 unknownLocation` on cloud hosts |
+| `GOOGLE_BOOKS_TIMEOUT` | `5s` | 1s-15s; per Google request |
+| `GOOGLE_BOOKS_CACHE_TTL` | `10m` | 0 disables; search pages only |
 | `DB_SECRET_ARN` | empty | optional AWS Secrets Manager JSON secret |
 | `LOG_LEVEL` | `info` | debug/info/warn/error |
 
@@ -990,8 +1079,10 @@ RequestID
   `Content-Type`, allow credentials, and expose `X-Total-Count`, `X-Page`, and
   `X-Page-Size`.
 - The rate limiter is an in-memory token bucket keyed by client IP. Use 10/min
-  for login/register and 120/min for general API traffic. Document that a
-  multi-instance deployment needs Redis later.
+  for login/register, 30/min for `GET /api/external/books` and
+  `POST /api/books/import` (they spend the shared Google quota), and 120/min
+  for general API traffic. Document that a multi-instance deployment needs
+  Redis later.
 - The logger records request ID, method, route template, status, duration, and
   user ID. Never log passwords, tokens, cookies, or request bodies.
 
@@ -1042,7 +1133,7 @@ history rows. Direct updates and deletes without that setting are rejected.
 
 ### 6.4 Catalog services
 
-Search:
+Library search (`GET /api/books`, `q01`):
 
 - Trim `q`; empty query returns the default sort (newest) with pagination.
 - Cap query length at 200 characters.
@@ -1063,10 +1154,66 @@ Book detail:
 
 Book create/update:
 
+- `POST /api/books` creates `source = 'user'` rows only and does not accept a
+  Google volume ID (`CreateBook`).
 - Validate title, page count, ISBN-13 format, and published date.
 - Upsert authors by case-insensitive normalized name, then upsert categories,
   then replace the book's junction rows in one transaction.
-- Reject duplicate ISBN-13 or Google Books IDs with `CONFLICT`.
+- Reject a duplicate ISBN-13 with `CONFLICT`.
+- `PATCH` on a `source = 'google'` book returns `403 FORBIDDEN`; `UpdateBook`
+  also filters `source <> 'google'` as the database-side guard.
+
+Google Books search (`GET /api/external/books`):
+
+- Require at least one of `q`, `title`, `author`, `category`, `isbn`; trim
+  each and cap at 200 characters.
+- Build Google's `q` from the free text plus `intitle:`, `inauthor:`,
+  `subject:`, and `isbn:` terms. Quote multi-word operator values.
+- Call `GET {base}/volumes` with `q`, `startIndex = (page - 1) * pageSize`,
+  `maxResults = pageSize` (max 40), `orderBy`, `printType=books`, `country`,
+  `projection=lite` where it carries enough fields, and `key` when set.
+- Normalize each volume (`normalize.go`):
+  - `title` required; skip results without one.
+  - `authors` and `categories` default to empty arrays. Category paths like
+    `Fiction / Fantasy / Epic` keep the last segment, trimmed and
+    de-duplicated case-insensitively.
+  - `description`: strip HTML tags, decode entities, collapse whitespace.
+  - `isbn13` from `industryIdentifiers` type `ISBN_13`; else convert
+    `ISBN_10` to ISBN-13 (`978` prefix + new check digit); else null.
+  - `pageCount <= 0` becomes null.
+  - `coverUrl`: `imageLinks.thumbnail` (or `smallThumbnail`), with `http://`
+    rewritten to `https://`.
+  - `infoLink`: `https://books.google.com/books?id=<volumeId>`.
+  - Ignore Google's `averageRating`, `ratingsCount`, prices, and access info.
+- Run `ListBooksByExternalIDs` once per page with the page's volume IDs and
+  ISBN-13 values and fill `bookId` on matches.
+- Cache the normalized page (before the `bookId` lookup) by the normalized
+  query string for `GOOGLE_BOOKS_CACHE_TTL`. The `bookId` lookup always runs
+  so a fresh import shows up immediately.
+- Map Google errors as listed in `docs/api/errors.md`. Never forward Google's
+  body, and never log the key or the full request URL with the key.
+
+Google Books import (`POST /api/books/import`):
+
+1. Validate `googleBooksId` (`^[A-Za-z0-9_-]{1,64}$`).
+2. `GetBookByExternalID(google_books_id)`. If found, return it with `200`.
+3. Fetch `GET {base}/volumes/{id}` from Google. The client never supplies
+   metadata. `404` from Google becomes `NOT_FOUND`.
+4. Normalize as above. `publishedDate` `YYYY` -> `YYYY-01-01` + `year`,
+   `YYYY-MM` -> `YYYY-MM-01` + `month`, `YYYY-MM-DD` -> `day`; anything else
+   -> null date and null precision. Reject a volume without a title with
+   `VALIDATION_ERROR`.
+5. If the ISBN-13 matches an existing row (`GetBookByExternalID(isbn13)`),
+   return that row with `200`; do not overwrite seed or user metadata.
+6. In one transaction: `ImportGoogleBook`, then `UpsertAuthor` /
+   `UpsertCategory` and `AddBookAuthor` / `AddBookCategory` for each name.
+   Commit and return the `Book` with `201`.
+7. On `23505` `books_isbn13_unique` (a concurrent import of a different volume
+   for the same book), roll back, rerun step 5, and return `200`.
+
+The service never copies Google's ratings into `ratings` or
+`book_rating_summaries`; the summary trigger creates an empty summary row for
+the new book.
 
 ### 6.5 Shelf and progress services
 
@@ -1131,7 +1278,10 @@ Never accept user SQL.
 1. Ping the pool with a 3-second timeout.
 2. Query the migration version table (`schema_migrations`).
 3. Return `200` only when the pool connects and the version is at least the
-   latest expected migration; otherwise `503` with a reason.
+   latest expected migration (currently `6`); otherwise `503` with a reason.
+
+`/readyz` does not call Google. A Google outage disables discovery only; the
+rest of the API stays ready.
 
 ---
 
@@ -1157,6 +1307,7 @@ Do not hide transactions inside repositories.
 | Progress update vs. completion | `FOR UPDATE` + optional version check | Serialized updates; stale version gets `409` |
 | Shelf move race | `FOR UPDATE` on shelf/progress | Final state matches the last committed move; no orphan items |
 | Deadlock/lock timeout | Retry helper | At most one retry; then `409`/`503` with request ID |
+| Two users import the same Google volume | `ON CONFLICT (google_books_id)` in `ImportGoogleBook` | One `books` row; both callers get the same `id` |
 
 Use the default `READ COMMITTED` isolation level and document it. Implement a
 small retry helper for SQLSTATE `40001` and `40P01` with a maximum of two
@@ -1179,6 +1330,23 @@ guard.
 - Request IDs propagate to logs and error responses.
 - Limit database privileges in production to the application schema (no
   superuser); RDS credentials come from Secrets Manager.
+- Google Books:
+  - The API key lives only on the server (env var locally, Secrets Manager in
+    AWS). The browser never calls Google directly.
+  - Restrict the key in Google Cloud Console to the Books API.
+  - Treat every Google field as untrusted input: strip HTML from
+    descriptions before storing or returning them, accept only `https` cover
+    URLs, and let React escape all text. Never render Google HTML.
+  - Import only by volume ID, re-fetched from Google on the server.
+  - Show Google attribution ("Powered by Google") and the `infoLink` on every
+    search result and on the detail page of `source = google` books. Pages
+    that list stored books (shelves, progress, reports) show one page-level
+    "Book information from Google Books" notice when any listed book has
+    `source = google`.
+  - Store only books a user acted on, and never commit Google data to the
+    repository. Google's API terms restrict permanent copies of API content;
+    whether storing acted-on books is acceptable for this course project is an
+    open decision (Section 16).
 
 ---
 
@@ -1192,7 +1360,8 @@ guard.
 | Handler | `backend/internal/handlers/*_test.go` | `httptest` status codes, JSON shapes, auth requirements, validation errors |
 | Repository | `backend/internal/repositories/*_test.go` | Row mapping, pagination, search filters |
 | Integration | `backend/internal/integration` | Real PostgreSQL via Testcontainers, migrations applied, full endpoint flows |
-| Concurrency | `backend/internal/integration/concurrency_test.go` | The four scenarios in Section 7.2 |
+| Concurrency | `backend/internal/integration/concurrency_test.go` | The scenarios in Section 7.2, including concurrent import |
+| Google client | `backend/internal/googlebooks/*_test.go` | Normalization table tests (partial dates, HTML, ISBN-10 conversion, BISAC paths, missing authors, `http` covers, `pageCount` 0); error mapping against an `httptest` fake Google. Tests never call the real Google API |
 
 Setup:
 
@@ -1230,13 +1399,20 @@ Setup:
 22. Default shelves are created on registration.
 23. Book with two authors and two categories returns both.
 24. Cascade delete removes owned shelves, progress, ratings, and reviews.
+25. A `google` book without `imported_at` or `google_books_id` is rejected.
+26. An unknown `books.source` is rejected.
+27. A date without precision, or precision without a date, is rejected.
+28. Importing the same volume twice returns the same `book_id`; a second
+    volume with the same ISBN-13 raises `books_isbn13_unique`.
+29. `UpdateBook` does not change a `google` book.
 
 ### 9.3 Frontend end-to-end
 
 Playwright flows:
 
 1. Register, log in, and load the dashboard.
-2. Search by title, author, and category.
+2. Search Google Books (against a stubbed API response in CI), import a
+   result, and shelve it; search the library by title, author, and category.
 3. Open a book detail page and see authors/categories/summary.
 4. Add a book to a shelf and move it between status shelves.
 5. Update progress and confirm the Finished transition.
@@ -1259,26 +1435,28 @@ the application uses it.
 | `frontend/src/app/layout.tsx` | Wrap the application in the query provider |
 | `frontend/src/services/auth-service.ts` | `register`, `login`, `logout`, `me` |
 | `frontend/src/services/user-service.ts` | Profile read/update, password change |
-| `frontend/src/services/book-service.ts` | Extend search filters, detail, create/update, rating summary |
+| `frontend/src/services/book-service.ts` | Add `searchGoogle` (`GET /api/external/books`), `importGoogleBook`, and an `ensureLocalBook(result)` helper that returns `result.bookId` or imports first; keep `search` for library search; detail, create/update, rating summary |
+| `frontend/src/components/GoogleAttribution.tsx` | New: "Powered by Google" mark and link, used on search results, Google-sourced book detail, and as a page-level notice |
+| `frontend/next.config.*` | Allow `books.google.com` and `*.googleusercontent.com` covers if `next/image` is used |
 | `frontend/src/services/reading-service.ts` | Progress CRUD, history, shelf add/move/remove |
 | `frontend/src/services/shelf-service.ts` | Shelf CRUD |
 | `frontend/src/services/review-service.ts` | Review list/create/update/delete, combined review+rating |
 | `frontend/src/services/author-service.ts` | Authors and categories |
 | `frontend/src/services/report-service.ts` | All report endpoints |
-| `frontend/src/types/domain.ts` | Add summary fields, author/category IDs, version, user/profile shapes |
+| `frontend/src/types/domain.ts` | Add summary fields, author/category IDs, version, user/profile shapes, `Book.source`/`infoLink`/`publishedDatePrecision`, and an `ExternalBook` type |
 | `frontend/src/components/AuthBoundary.tsx` | Replace `localStorage` with `useQuery(['auth','me'])`; redirect to `/login` on `401` |
 | `frontend/src/app/login/page.tsx` | React Hook Form + Zod; call the auth service; show API errors |
 | `frontend/src/app/register/page.tsx` | New registration page |
 | `frontend/src/app/(workspace)/dashboard/page.tsx` | Real stats, current reading, recent activity, shelves |
-| `frontend/src/app/(workspace)/catalog/page.tsx` | Search results, filters, pagination, loading/empty/error states |
-| `frontend/src/app/books/[bookId]/page.tsx` | New book detail page with shelf/progress/review/rating actions |
+| `frontend/src/app/(workspace)/catalog/page.tsx` | Two tabs: "Google Books" (default, `searchGoogle`) and "In the library" (`search`, with author/category filters); pagination, loading/empty/error states; on `UPSTREAM_*` errors show a message and switch to the library tab |
+| `frontend/src/app/books/[bookId]/page.tsx` | New book detail page with shelf/progress/review/rating actions; Google attribution and `infoLink` when `source = google`; date shown per `publishedDatePrecision` |
 | `frontend/src/app/(workspace)/authors/page.tsx` | Author/category listings and detail navigation |
 | `frontend/src/app/(workspace)/shelves/page.tsx` | Shelf list, create/rename/delete, add/move/remove books |
 | `frontend/src/app/(workspace)/progress/page.tsx` | Progress list and update form |
 | `frontend/src/app/(workspace)/reviews/page.tsx` | User reviews with edit/delete |
 | `frontend/src/app/(workspace)/reports/page.tsx` | Report tabs and query links |
 | `frontend/src/app/(workspace)/settings/page.tsx` | Profile and password forms |
-| `frontend/src/app/explore/page.tsx` | Public catalog backed by `GET /api/books` |
+| `frontend/src/app/explore/page.tsx` | Public Google Books search; actions on a result send anonymous users to `/login` before import |
 | `frontend/src/components/PublicHome.tsx` | Replace `featuredBooks` mock data with a public featured query |
 | `frontend/src/data/mock-data.ts` | Remove usage; delete or retain only as a storybook fixture |
 
@@ -1286,6 +1464,9 @@ Use React Hook Form + Zod for register, login, review, rating, shelf, progress,
 and profile forms. Use TanStack Query mutations with invalidation for shelves,
 progress, reviews, ratings, and reports. Add optimistic updates for rating and
 shelf actions.
+
+Never call `googleapis.com` from the browser and never put the key in a
+`NEXT_PUBLIC_*` variable.
 
 Contract compatibility: keep `Book.author` as a string, keep `Review.body`,
 keep `Rating.value`, keep `ReadingProgress.bookId/status/currentPage/totalPages`,
@@ -1307,6 +1488,9 @@ COOKIE_SECURE=false
 DB_MAX_OPEN_CONNS=10
 DB_MAX_IDLE_CONNS=5
 ```
+
+`GOOGLE_BOOKS_API_KEY` and `GOOGLE_BOOKS_COUNTRY` are already passed to the
+`api` service in both Compose files (empty key and `US` by default).
 
 For the RDS file use `APP_ENV=production` and `COOKIE_SECURE=true` when the
 frontend is served over HTTPS. Never commit a production `JWT_SECRET`.
@@ -1380,7 +1564,9 @@ Canonical function/trigger DDL lives in the migrations. The `functions/` and
 text; note this in their README files.
 
 Move `finalized_er_diagram.png` from the repository root to
-`docs/diagrams/er-diagram.png` and reference it from the root README.
+`docs/diagrams/er-diagram.png` and reference it from the root README. Before
+moving it, add the `000006` columns to the `BOOKS` entity (`source`,
+`published_date_precision`, `imported_at`). No entity or relationship changes.
 
 Update stale statements:
 
@@ -1412,6 +1598,21 @@ Update stale statements:
 applied migrations `000001`-`000004` and all seeds. OpenAPI validated with
 38 paths, 53 operations, 225 refs, no missing refs, and no duplicate
 operationIds. The `.down.sql` files have not been exercised yet.
+
+**Phase 1 addendum (2026-11-10): Google Books design.**
+
+- [x] Add `000006_book_sources` up/down (source, date precision, import time).
+- [x] Update the schema mirror, seeds 001/002 (`source = 'seed'`), and book
+      queries; add `ListBooksByExternalIDs` and `ImportGoogleBook` (66 queries).
+- [x] Add `GET /api/external/books`, `POST /api/books/import`,
+      `ExternalBook`, `Book.source`/`infoLink`/`publishedDatePrecision`, and
+      the `UPSTREAM_*` errors to the contract.
+
+Verified in a throwaway `postgres:18-alpine`: migrations 1-6 up, seeds twice,
+all 66 generated queries `PREPARE`, `000006` down/up on seeded data (backfill
+gives 201 `seed` rows with `day` precision), and 10 constraint/import checks.
+`sqlc diff`, `go build ./...`, and `go vet ./...` are clean. OpenAPI: 40
+paths, 55 operations, 247 refs, no missing refs, no duplicate operationIds.
 
 ### 13.1 Phase 1 verification commands
 
@@ -1450,7 +1651,8 @@ complete dataset; `sqlc generate` succeeds.
 ### Phase 2 — Go foundation
 
 - [ ] Replace `database/sql` with `pgxpool`.
-- [ ] Add config loading and validation.
+- [ ] Add config loading and validation, including the `GOOGLE_BOOKS_*`
+      settings (Section 6.1). The Google client itself is Phase 4.
 - [ ] Add `httpx` response/error helpers and domain errors.
 - [ ] Add request ID, logging, recovery, CORS, timeout, body limit, and rate
       limit middleware.
@@ -1475,15 +1677,23 @@ working token; protected routes reject anonymous callers.
 
 ### Phase 4 — Catalog and search
 
-- [ ] Book list/search with filters, sort, pagination, and total count.
-- [ ] Book detail with authors, categories, summary, and user context.
-- [ ] Book create/update with author/category upserts.
+- [ ] Library search with filters, sort, pagination, and total count.
+- [ ] Book detail with authors, categories, summary, user context, `source`,
+      and `infoLink`.
+- [ ] Book create (`source = user`) and update (`403` for Google rows) with
+      author/category upserts.
 - [ ] Authors and categories endpoints.
-- [ ] Optional Google Books importer.
+- [ ] `internal/googlebooks` client, normalizer, and cache with table tests
+      against an `httptest` fake.
+- [ ] `GET /api/external/books` with `bookId` marking and error mapping.
+- [ ] `POST /api/books/import` with dedupe by volume ID and ISBN-13, and the
+      concurrent-import test.
 - [ ] Search integration tests for title, author, category, and keyword.
 
 **Exit:** `q01` and `q02` return validated results; a book with multiple
-authors/categories renders completely.
+authors/categories renders completely; a Google result can be imported once
+and then shelved through the existing shelf endpoint; Google failures return
+`UPSTREAM_*` while library search keeps working.
 
 ### Phase 5 — Shelves, progress, and history
 
@@ -1526,6 +1736,7 @@ dataset and links to its SQL.
 - [ ] Replace `localStorage` auth with cookie-backed session.
 - [ ] Wire catalog, book detail, shelves, progress, reviews, ratings, reports,
       and settings.
+- [ ] Google Books search tab, import-on-action, and Google attribution.
 - [ ] Add forms and loading/empty/error states.
 - [ ] Remove `mock-data.ts` usage.
 - [ ] Playwright happy-path flows.
@@ -1563,7 +1774,8 @@ PostgreSQL, and the local and deployed schemas match.
 | Course requirement | Implementation |
 | --- | --- |
 | Database-driven platform | Go API + explicit SQL + seeded PostgreSQL; no ORM |
-| Search by title/author/category/keyword | `q01`, `GET /api/books`, FTS + `pg_trgm` + GIN |
+| Search by title/author/category/keyword | Discovery: `GET /api/external/books` (Google Books). Library: `q01`, `GET /api/books`, FTS + `pg_trgm` + GIN |
+| Book metadata from a real source | `POST /api/books/import`, `books.source`, `ImportGoogleBook` with dedupe on `google_books_id`/`isbn13` |
 | Book metadata | `books`, `authors`, `categories`, junction tables, detail endpoint |
 | Accounts and profiles | `/api/auth/*`, `/api/users/me`, Argon2id + JWT |
 | Reading shelves | `/api/shelves`, `fn_move_book_to_shelf`, default shelves |
@@ -1587,7 +1799,10 @@ The project is complete when:
 - [ ] A clean PostgreSQL 18 database migrates and seeds with one command.
 - [ ] Registration creates a user, profile, and four default shelves.
 - [ ] Login works with the seeded demo account and protects workspace routes.
-- [ ] Search by title, author, category, and keyword returns paginated results.
+- [ ] Search by title, author, category, and keyword returns paginated results,
+      both from Google Books and from the library.
+- [ ] A Google result can be imported once and then shelved, rated, reviewed,
+      and tracked; Google content is shown with attribution.
 - [ ] Book detail shows all authors, categories, summary, and reviews.
 - [ ] Shelf add/move/remove updates progress and history atomically.
 - [ ] Progress updates validate page counts and move completed books to Finished.
@@ -1619,7 +1834,11 @@ The project is complete when:
 | Testcontainers unavailable on a teammate machine | Integration tests skipped locally | Run them in CI and document the Docker requirement |
 | Concurrent summary updates look flaky | Weak evidence | Record isolation level, seed state, session order, and final counts; use deterministic fixtures |
 | No admin role | Any authenticated user can add catalog records | Document the MVP limitation; add `users.role` in a post-MVP migration if required |
-| Google Books unavailable during demo | Import demo fails | Demo against the committed seed dataset; use the importer only beforehand |
+| Google Books unavailable or slow during the demo | Discovery search and import fail | 5 s timeout and `UPSTREAM_*` errors; the UI falls back to library search; reports and evidence use seed data only; import the demo books before the presentation |
+| Google quota exhausted (about 1,000 requests/day by default; anonymous is lower) | Search returns `503` | Use an API key, 10-minute search cache, 30/min per-IP limit; tests use a fake server, never the real API |
+| Google query operators misbehave (`intitle:`/`inauthor:`/`isbn:` returned 0 results in October 2026 until a reported fix on 2026-11-02) | Filtered Google search returns nothing | Rehearse the demo queries; free-text `q` and library search still work |
+| Google API terms restrict permanent copies of content | Storing imported books may not comply | Store only books users act on, attribute them, never commit Google data; confirm with the instructor (open decision 4) |
+| Imported books have no seed activity | Reports look empty for real books | Expected; reports demonstrate SQL on the seed dataset, and real books gain activity as users use them |
 
 ### Open decisions to confirm with the team
 
@@ -1630,5 +1849,11 @@ The project is complete when:
 3. Whether the combined `PUT /api/books/{bookId}/review` endpoint should be the
    only review form path or coexist with separate review and rating endpoints.
    This plan keeps both.
-4. Whether the Google Books importer is required for the demo or the synthetic
-   200-book seed is sufficient. The seed is required; the importer is optional.
+4. **Decided 2026-11-10:** users search Google Books live and books are
+   imported on first use (Section 2, item 11). Still open: whether the
+   instructor accepts storing acted-on Google books under Google's API terms.
+   If not, the fallback is to store only `google_books_id` plus the user's own
+   data and fetch display metadata from Google at read time, which removes
+   library search for those books.
+5. Whether to keep the library search tab visible to users or use
+   `GET /api/books` only for evidence and filters. This plan keeps the tab.

@@ -282,6 +282,9 @@ The Go API should expose:
 - `/readyz` for PostgreSQL connectivity and migration readiness.
 - `/api/auth`, `/api/users`, `/api/books`, `/api/search`, `/api/shelves`,
   `/api/progress`, `/api/reviews`, `/api/ratings`, and `/api/reports`.
+- `/api/external/books` (Google Books search through the server) and
+  `/api/books/import` (adds one Google volume to the library when a user acts
+  on it). `BACKEND_PLAN.md` is the detailed contract.
 
 Integration tests should use a disposable database and deterministic fixtures.
 They should cover constraint errors, rollback behavior, duplicate review and
