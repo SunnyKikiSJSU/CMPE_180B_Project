@@ -66,24 +66,26 @@ func (q *Queries) ClearBookCategories(ctx context.Context, bookID uuid.UUID) err
 
 const createBook = `-- name: CreateBook :one
 INSERT INTO books (
-    google_books_id,
     isbn13,
     title,
     description,
     published_date,
+    published_date_precision,
     publisher,
     page_count,
-    cover_url
+    cover_url,
+    source
 )
 VALUES (
     $1,
     $2,
     $3,
-    $4,
+    $4::date,
+    CASE WHEN $4::date IS NULL THEN NULL ELSE 'day' END,
     $5,
     $6,
     $7,
-    $8
+    'user'
 )
 RETURNING
     book_id,
@@ -94,11 +96,12 @@ RETURNING
     published_date,
     publisher,
     page_count,
-    cover_url
+    cover_url,
+    source,
+    published_date_precision
 `
 
 type CreateBookParams struct {
-	GoogleBooksID pgtype.Text
 	Isbn13        pgtype.Text
 	Title         string
 	Description   pgtype.Text
@@ -109,20 +112,23 @@ type CreateBookParams struct {
 }
 
 type CreateBookRow struct {
-	BookID        uuid.UUID
-	GoogleBooksID pgtype.Text
-	Isbn13        pgtype.Text
-	Title         string
-	Description   pgtype.Text
-	PublishedDate pgtype.Date
-	Publisher     pgtype.Text
-	PageCount     pgtype.Int4
-	CoverUrl      pgtype.Text
+	BookID                 uuid.UUID
+	GoogleBooksID          pgtype.Text
+	Isbn13                 pgtype.Text
+	Title                  string
+	Description            pgtype.Text
+	PublishedDate          pgtype.Date
+	Publisher              pgtype.Text
+	PageCount              pgtype.Int4
+	CoverUrl               pgtype.Text
+	Source                 string
+	PublishedDatePrecision pgtype.Text
 }
 
+// User-created catalog record (POST /api/books). Google rows are created only
+// by ImportGoogleBook, so this query never sets google_books_id.
 func (q *Queries) CreateBook(ctx context.Context, arg CreateBookParams) (CreateBookRow, error) {
 	row := q.db.QueryRow(ctx, createBook,
-		arg.GoogleBooksID,
 		arg.Isbn13,
 		arg.Title,
 		arg.Description,
@@ -142,6 +148,8 @@ func (q *Queries) CreateBook(ctx context.Context, arg CreateBookParams) (CreateB
 		&i.Publisher,
 		&i.PageCount,
 		&i.CoverUrl,
+		&i.Source,
+		&i.PublishedDatePrecision,
 	)
 	return i, err
 }
@@ -156,11 +164,13 @@ SELECT
     b.book_id,
     b.google_books_id,
     b.isbn13,
-    b.title
+    b.title,
+    b.source
 FROM books b
 CROSS JOIN params p
 WHERE (p.google_books_id IS NOT NULL AND b.google_books_id = p.google_books_id)
    OR (p.isbn13 IS NOT NULL AND b.isbn13 = p.isbn13)
+ORDER BY (b.google_books_id IS NOT DISTINCT FROM p.google_books_id) DESC
 LIMIT 1
 `
 
@@ -174,8 +184,11 @@ type GetBookByExternalIDRow struct {
 	GoogleBooksID pgtype.Text
 	Isbn13        pgtype.Text
 	Title         string
+	Source        string
 }
 
+// Import dedupe: finds an existing local row for a Google volume, first by
+// volume ID, then by ISBN-13 (several Google volume IDs can be one book).
 func (q *Queries) GetBookByExternalID(ctx context.Context, arg GetBookByExternalIDParams) (GetBookByExternalIDRow, error) {
 	row := q.db.QueryRow(ctx, getBookByExternalID, arg.GoogleBooksID, arg.Isbn13)
 	var i GetBookByExternalIDRow
@@ -184,6 +197,7 @@ func (q *Queries) GetBookByExternalID(ctx context.Context, arg GetBookByExternal
 		&i.GoogleBooksID,
 		&i.Isbn13,
 		&i.Title,
+		&i.Source,
 	)
 	return i, err
 }
@@ -199,6 +213,8 @@ SELECT
     b.publisher,
     b.page_count,
     b.cover_url,
+    b.source,
+    b.published_date_precision,
     (
         SELECT a.name
         FROM book_authors ba
@@ -240,21 +256,23 @@ WHERE b.book_id = $1
 `
 
 type GetBookByIDRow struct {
-	BookID        uuid.UUID
-	GoogleBooksID pgtype.Text
-	Isbn13        pgtype.Text
-	Title         string
-	Description   pgtype.Text
-	PublishedDate pgtype.Date
-	Publisher     pgtype.Text
-	PageCount     pgtype.Int4
-	CoverUrl      pgtype.Text
-	PrimaryAuthor string
-	Authors       interface{}
-	Categories    interface{}
-	AverageRating float64
-	RatingCount   int32
-	ReviewCount   int32
+	BookID                 uuid.UUID
+	GoogleBooksID          pgtype.Text
+	Isbn13                 pgtype.Text
+	Title                  string
+	Description            pgtype.Text
+	PublishedDate          pgtype.Date
+	Publisher              pgtype.Text
+	PageCount              pgtype.Int4
+	CoverUrl               pgtype.Text
+	Source                 string
+	PublishedDatePrecision pgtype.Text
+	PrimaryAuthor          string
+	Authors                interface{}
+	Categories             interface{}
+	AverageRating          float64
+	RatingCount            int32
+	ReviewCount            int32
 }
 
 func (q *Queries) GetBookByID(ctx context.Context, bookID uuid.UUID) (GetBookByIDRow, error) {
@@ -270,6 +288,8 @@ func (q *Queries) GetBookByID(ctx context.Context, bookID uuid.UUID) (GetBookByI
 		&i.Publisher,
 		&i.PageCount,
 		&i.CoverUrl,
+		&i.Source,
+		&i.PublishedDatePrecision,
 		&i.PrimaryAuthor,
 		&i.Authors,
 		&i.Categories,
@@ -278,6 +298,156 @@ func (q *Queries) GetBookByID(ctx context.Context, bookID uuid.UUID) (GetBookByI
 		&i.ReviewCount,
 	)
 	return i, err
+}
+
+const importGoogleBook = `-- name: ImportGoogleBook :one
+INSERT INTO books (
+    google_books_id,
+    isbn13,
+    title,
+    description,
+    published_date,
+    published_date_precision,
+    publisher,
+    page_count,
+    cover_url,
+    source,
+    imported_at
+)
+VALUES (
+    $1::text,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6,
+    $7,
+    $8,
+    $9,
+    'google',
+    now()
+)
+ON CONFLICT (google_books_id) DO UPDATE
+    SET google_books_id = books.google_books_id
+RETURNING
+    book_id,
+    google_books_id,
+    isbn13,
+    title,
+    description,
+    published_date,
+    publisher,
+    page_count,
+    cover_url,
+    source,
+    published_date_precision,
+    imported_at
+`
+
+type ImportGoogleBookParams struct {
+	GoogleBooksID          string
+	Isbn13                 pgtype.Text
+	Title                  string
+	Description            pgtype.Text
+	PublishedDate          pgtype.Date
+	PublishedDatePrecision pgtype.Text
+	Publisher              pgtype.Text
+	PageCount              pgtype.Int4
+	CoverUrl               pgtype.Text
+}
+
+type ImportGoogleBookRow struct {
+	BookID                 uuid.UUID
+	GoogleBooksID          pgtype.Text
+	Isbn13                 pgtype.Text
+	Title                  string
+	Description            pgtype.Text
+	PublishedDate          pgtype.Date
+	Publisher              pgtype.Text
+	PageCount              pgtype.Int4
+	CoverUrl               pgtype.Text
+	Source                 string
+	PublishedDatePrecision pgtype.Text
+	ImportedAt             pgtype.Timestamptz
+}
+
+// Creates the local row for a Google volume (POST /api/books/import). The
+// service fetches the volume from Google by ID and normalizes it first; client
+// metadata is never trusted. Concurrent imports of the same volume return the
+// same row: the no-op DO UPDATE makes RETURNING yield the existing row. An
+// ISBN-13 collision with a different row raises 23505 on books_isbn13_unique;
+// the service then reruns GetBookByExternalID and returns that row.
+func (q *Queries) ImportGoogleBook(ctx context.Context, arg ImportGoogleBookParams) (ImportGoogleBookRow, error) {
+	row := q.db.QueryRow(ctx, importGoogleBook,
+		arg.GoogleBooksID,
+		arg.Isbn13,
+		arg.Title,
+		arg.Description,
+		arg.PublishedDate,
+		arg.PublishedDatePrecision,
+		arg.Publisher,
+		arg.PageCount,
+		arg.CoverUrl,
+	)
+	var i ImportGoogleBookRow
+	err := row.Scan(
+		&i.BookID,
+		&i.GoogleBooksID,
+		&i.Isbn13,
+		&i.Title,
+		&i.Description,
+		&i.PublishedDate,
+		&i.Publisher,
+		&i.PageCount,
+		&i.CoverUrl,
+		&i.Source,
+		&i.PublishedDatePrecision,
+		&i.ImportedAt,
+	)
+	return i, err
+}
+
+const listBooksByExternalIDs = `-- name: ListBooksByExternalIDs :many
+SELECT
+    b.book_id,
+    b.google_books_id,
+    b.isbn13
+FROM books b
+WHERE b.google_books_id = ANY ($1::text[])
+   OR b.isbn13 = ANY ($2::text[])
+`
+
+type ListBooksByExternalIDsParams struct {
+	GoogleBooksIds []string
+	Isbn13s        []string
+}
+
+type ListBooksByExternalIDsRow struct {
+	BookID        uuid.UUID
+	GoogleBooksID pgtype.Text
+	Isbn13        pgtype.Text
+}
+
+// Marks Google search results that already exist locally, so the response can
+// carry the local bookId. One call per search page (at most 40 IDs).
+func (q *Queries) ListBooksByExternalIDs(ctx context.Context, arg ListBooksByExternalIDsParams) ([]ListBooksByExternalIDsRow, error) {
+	rows, err := q.db.Query(ctx, listBooksByExternalIDs, arg.GoogleBooksIds, arg.Isbn13s)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListBooksByExternalIDsRow{}
+	for rows.Next() {
+		var i ListBooksByExternalIDsRow
+		if err := rows.Scan(&i.BookID, &i.GoogleBooksID, &i.Isbn13); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const searchBooks = `-- name: SearchBooks :many
@@ -341,6 +511,8 @@ SELECT
     b.publisher,
     b.page_count,
     b.cover_url,
+    b.source,
+    b.published_date_precision,
     (
         SELECT a.name
         FROM book_authors ba
@@ -422,29 +594,41 @@ type SearchBooksParams struct {
 }
 
 type SearchBooksRow struct {
-	BookID        uuid.UUID
-	GoogleBooksID pgtype.Text
-	Isbn13        pgtype.Text
-	Title         string
-	Description   pgtype.Text
-	PublishedDate pgtype.Date
-	Publisher     pgtype.Text
-	PageCount     pgtype.Int4
-	CoverUrl      pgtype.Text
-	PrimaryAuthor string
-	Authors       interface{}
-	Categories    interface{}
-	AverageRating float64
-	RatingCount   int32
-	ReviewCount   int32
-	TotalCount    int32
+	BookID                 uuid.UUID
+	GoogleBooksID          pgtype.Text
+	Isbn13                 pgtype.Text
+	Title                  string
+	Description            pgtype.Text
+	PublishedDate          pgtype.Date
+	Publisher              pgtype.Text
+	PageCount              pgtype.Int4
+	CoverUrl               pgtype.Text
+	Source                 string
+	PublishedDatePrecision pgtype.Text
+	PrimaryAuthor          string
+	Authors                interface{}
+	Categories             interface{}
+	AverageRating          float64
+	RatingCount            int32
+	ReviewCount            int32
+	TotalCount             int32
 }
 
 // Catalog search, detail, and catalog-write queries.
 //
-// Search uses both full-text ranking (title/description) and trigram-style
-// ILIKE membership through authors and categories. EXISTS keeps the outer
-// result one row per book; json_agg provides the many-to-many arrays.
+// Two kinds of search exist:
+//   - Google search (GET /api/external/books) calls the Google Books API from
+//     the Go service and stores nothing. ListBooksByExternalIDs marks which
+//     results are already in the local library.
+//   - Library search (SearchBooks, GET /api/books) searches the local books
+//     table: seed rows, imported Google rows, and user-created rows.
+//
+// A Google result becomes a local row through ImportGoogleBook only when a
+// user acts on it, because every user-activity table references books.book_id.
+//
+// Library search uses both full-text ranking (title/description) and
+// trigram-style ILIKE membership through authors and categories. EXISTS keeps
+// the outer result one row per book; json_agg provides the many-to-many arrays.
 //
 // User text is used as a substring pattern, so LIKE wildcards are escaped:
 // searching for `100%` or `a_b` matches those characters literally.
@@ -475,6 +659,8 @@ func (q *Queries) SearchBooks(ctx context.Context, arg SearchBooksParams) ([]Sea
 			&i.Publisher,
 			&i.PageCount,
 			&i.CoverUrl,
+			&i.Source,
+			&i.PublishedDatePrecision,
 			&i.PrimaryAuthor,
 			&i.Authors,
 			&i.Categories,
@@ -498,12 +684,17 @@ UPDATE books
 SET
     title = coalesce($1, title),
     description = coalesce($2, description),
-    published_date = coalesce($3, published_date),
+    published_date = coalesce($3::date, published_date),
+    published_date_precision = CASE
+        WHEN $3::date IS NOT NULL THEN 'day'
+        ELSE published_date_precision
+    END,
     publisher = coalesce($4, publisher),
     page_count = coalesce($5, page_count),
     cover_url = coalesce($6, cover_url),
     isbn13 = coalesce($7, isbn13)
 WHERE book_id = $8
+  AND source <> 'google'
 RETURNING
     book_id,
     google_books_id,
@@ -513,7 +704,9 @@ RETURNING
     published_date,
     publisher,
     page_count,
-    cover_url
+    cover_url,
+    source,
+    published_date_precision
 `
 
 type UpdateBookParams struct {
@@ -528,17 +721,22 @@ type UpdateBookParams struct {
 }
 
 type UpdateBookRow struct {
-	BookID        uuid.UUID
-	GoogleBooksID pgtype.Text
-	Isbn13        pgtype.Text
-	Title         string
-	Description   pgtype.Text
-	PublishedDate pgtype.Date
-	Publisher     pgtype.Text
-	PageCount     pgtype.Int4
-	CoverUrl      pgtype.Text
+	BookID                 uuid.UUID
+	GoogleBooksID          pgtype.Text
+	Isbn13                 pgtype.Text
+	Title                  string
+	Description            pgtype.Text
+	PublishedDate          pgtype.Date
+	Publisher              pgtype.Text
+	PageCount              pgtype.Int4
+	CoverUrl               pgtype.Text
+	Source                 string
+	PublishedDatePrecision pgtype.Text
 }
 
+// Google-imported rows are read-only here: their content belongs to Google and
+// is shown with Google attribution. The service returns 403 for them; the
+// source filter is the database-side guard.
 func (q *Queries) UpdateBook(ctx context.Context, arg UpdateBookParams) (UpdateBookRow, error) {
 	row := q.db.QueryRow(ctx, updateBook,
 		arg.Title,
@@ -561,6 +759,8 @@ func (q *Queries) UpdateBook(ctx context.Context, arg UpdateBookParams) (UpdateB
 		&i.Publisher,
 		&i.PageCount,
 		&i.CoverUrl,
+		&i.Source,
+		&i.PublishedDatePrecision,
 	)
 	return i, err
 }

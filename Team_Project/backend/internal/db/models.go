@@ -15,16 +15,19 @@ type Author struct {
 }
 
 type Book struct {
-	BookID        uuid.UUID
-	GoogleBooksID pgtype.Text
-	Isbn13        pgtype.Text
-	Title         string
-	Description   pgtype.Text
-	PublishedDate pgtype.Date
-	Publisher     pgtype.Text
-	PageCount     pgtype.Int4
-	CoverUrl      pgtype.Text
-	SearchVector  interface{}
+	BookID                 uuid.UUID
+	GoogleBooksID          pgtype.Text
+	Isbn13                 pgtype.Text
+	Title                  string
+	Description            pgtype.Text
+	PublishedDate          pgtype.Date
+	Publisher              pgtype.Text
+	PageCount              pgtype.Int4
+	CoverUrl               pgtype.Text
+	SearchVector           interface{}
+	Source                 string
+	PublishedDatePrecision pgtype.Text
+	ImportedAt             pgtype.Timestamptz
 }
 
 type BookAuthor struct {

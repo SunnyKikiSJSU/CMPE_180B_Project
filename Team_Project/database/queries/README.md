@@ -10,7 +10,7 @@ and updating its repository call.
 | --- | --- |
 | `auth.sql` | User lookup by email/ID, creation, password update |
 | `users.sql` | Profile read/update, account stats, account deletion |
-| `books.sql` | Search, book detail, catalog writes, author/category upserts |
+| `books.sql` | Library search, book detail, catalog writes, Google import and dedupe lookups, author/category upserts |
 | `authors.sql` | Author list/detail and author-scoped books |
 | `categories.sql` | Category list/detail and category-scoped books |
 | `shelves.sql` | Shelf CRUD, shelf-book listing, membership add/remove |
@@ -33,6 +33,23 @@ and updating its repository call.
 | `q08` | `AuthorRankings`, `CategoryRankings` | `GET /api/reports/authors`, `GET /api/reports/categories` |
 | `q09` | `ReviewActivity` | `GET /api/reports/review-activity` |
 | `q10` | `GetRatingDistribution` | `GET /api/books/{bookId}/ratings` |
+
+## Google Books queries
+
+Google search itself runs in the Go `googlebooks` client, not in SQL. These
+queries connect its results to the library:
+
+| Query | Endpoint | Role |
+| --- | --- | --- |
+| `ListBooksByExternalIDs` | `GET /api/external/books` | One lookup per result page; fills `bookId` for volumes (or ISBN-13s) already stored |
+| `GetBookByExternalID` | `POST /api/books/import` | Dedupe by volume ID, then ISBN-13, before calling Google |
+| `ImportGoogleBook` | `POST /api/books/import` | Inserts `source = 'google'`; `ON CONFLICT (google_books_id)` returns the existing row for concurrent imports |
+
+`CreateBook` creates `source = 'user'` rows and never sets `google_books_id`.
+`UpdateBook` skips `source = 'google'` rows. `SearchBooks`, `GetBookByID`,
+`ListBooksByAuthor`, `ListBooksByCategory`, and `ListShelfBooks` return
+`source` and `published_date_precision` (and `google_books_id`, from which the
+service builds `infoLink` for Google rows).
 
 ## Pagination totals
 

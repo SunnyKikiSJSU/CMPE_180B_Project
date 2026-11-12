@@ -35,6 +35,9 @@ SELECT
     b.publisher,
     b.page_count,
     b.cover_url,
+    b.google_books_id,
+    b.source,
+    b.published_date_precision,
     (
         SELECT a.name
         FROM book_authors ba
@@ -87,21 +90,24 @@ type ListBooksByCategoryParams struct {
 }
 
 type ListBooksByCategoryRow struct {
-	BookID        uuid.UUID
-	Isbn13        pgtype.Text
-	Title         string
-	Description   pgtype.Text
-	PublishedDate pgtype.Date
-	Publisher     pgtype.Text
-	PageCount     pgtype.Int4
-	CoverUrl      pgtype.Text
-	PrimaryAuthor string
-	Authors       interface{}
-	Categories    interface{}
-	AverageRating float64
-	RatingCount   int32
-	ReviewCount   int32
-	TotalCount    int32
+	BookID                 uuid.UUID
+	Isbn13                 pgtype.Text
+	Title                  string
+	Description            pgtype.Text
+	PublishedDate          pgtype.Date
+	Publisher              pgtype.Text
+	PageCount              pgtype.Int4
+	CoverUrl               pgtype.Text
+	GoogleBooksID          pgtype.Text
+	Source                 string
+	PublishedDatePrecision pgtype.Text
+	PrimaryAuthor          string
+	Authors                interface{}
+	Categories             interface{}
+	AverageRating          float64
+	RatingCount            int32
+	ReviewCount            int32
+	TotalCount             int32
 }
 
 func (q *Queries) ListBooksByCategory(ctx context.Context, arg ListBooksByCategoryParams) ([]ListBooksByCategoryRow, error) {
@@ -122,6 +128,9 @@ func (q *Queries) ListBooksByCategory(ctx context.Context, arg ListBooksByCatego
 			&i.Publisher,
 			&i.PageCount,
 			&i.CoverUrl,
+			&i.GoogleBooksID,
+			&i.Source,
+			&i.PublishedDatePrecision,
 			&i.PrimaryAuthor,
 			&i.Authors,
 			&i.Categories,

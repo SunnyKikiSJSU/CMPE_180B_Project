@@ -21,6 +21,8 @@ type Querier interface {
 	ClearBookAuthors(ctx context.Context, bookID uuid.UUID) error
 	ClearBookCategories(ctx context.Context, bookID uuid.UUID) error
 	CountCustomShelves(ctx context.Context, userID uuid.UUID) (int32, error)
+	// User-created catalog record (POST /api/books). Google rows are created only
+	// by ImportGoogleBook, so this query never sets google_books_id.
 	CreateBook(ctx context.Context, arg CreateBookParams) (CreateBookRow, error)
 	CreateReview(ctx context.Context, arg CreateReviewParams) (CreateReviewRow, error)
 	CreateShelf(ctx context.Context, arg CreateShelfParams) (CreateShelfRow, error)
@@ -38,6 +40,8 @@ type Querier interface {
 	DeleteUser(ctx context.Context, userID uuid.UUID) error
 	FavoriteCategories(ctx context.Context, arg FavoriteCategoriesParams) ([]FavoriteCategoriesRow, error)
 	GetAuthorByID(ctx context.Context, authorID uuid.UUID) (Author, error)
+	// Import dedupe: finds an existing local row for a Google volume, first by
+	// volume ID, then by ISBN-13 (several Google volume IDs can be one book).
 	GetBookByExternalID(ctx context.Context, arg GetBookByExternalIDParams) (GetBookByExternalIDRow, error)
 	GetBookByID(ctx context.Context, bookID uuid.UUID) (GetBookByIDRow, error)
 	// Rating summary, distribution, and owner-scoped writes.
@@ -60,6 +64,13 @@ type Querier interface {
 	// User profile and account queries. All writes are scoped by user_id, so a
 	// caller cannot affect another account even if a handler forgets a check.
 	GetUserWithProfile(ctx context.Context, userID uuid.UUID) (GetUserWithProfileRow, error)
+	// Creates the local row for a Google volume (POST /api/books/import). The
+	// service fetches the volume from Google by ID and normalizes it first; client
+	// metadata is never trusted. Concurrent imports of the same volume return the
+	// same row: the no-op DO UPDATE makes RETURNING yield the existing row. An
+	// ISBN-13 collision with a different row raises 23505 on books_isbn13_unique;
+	// the service then reruns GetBookByExternalID and returns that row.
+	ImportGoogleBook(ctx context.Context, arg ImportGoogleBookParams) (ImportGoogleBookRow, error)
 	// Author listing, detail, and author-scoped book listing.
 	// LIKE wildcards in user text are escaped so they match literally.
 	ListAuthors(ctx context.Context, arg ListAuthorsParams) ([]ListAuthorsRow, error)
@@ -68,6 +79,9 @@ type Querier interface {
 	ListBookReviews(ctx context.Context, arg ListBookReviewsParams) ([]ListBookReviewsRow, error)
 	ListBooksByAuthor(ctx context.Context, arg ListBooksByAuthorParams) ([]ListBooksByAuthorRow, error)
 	ListBooksByCategory(ctx context.Context, arg ListBooksByCategoryParams) ([]ListBooksByCategoryRow, error)
+	// Marks Google search results that already exist locally, so the response can
+	// carry the local bookId. One call per search page (at most 40 IDs).
+	ListBooksByExternalIDs(ctx context.Context, arg ListBooksByExternalIDsParams) ([]ListBooksByExternalIDsRow, error)
 	// Category listing, detail, and category-scoped book listing.
 	// LIKE wildcards in user text are escaped so they match literally.
 	ListCategories(ctx context.Context, arg ListCategoriesParams) ([]ListCategoriesRow, error)
@@ -101,14 +115,26 @@ type Querier interface {
 	ReviewActivity(ctx context.Context, days int32) ([]ReviewActivityRow, error)
 	// Catalog search, detail, and catalog-write queries.
 	//
-	// Search uses both full-text ranking (title/description) and trigram-style
-	// ILIKE membership through authors and categories. EXISTS keeps the outer
-	// result one row per book; json_agg provides the many-to-many arrays.
+	// Two kinds of search exist:
+	//   * Google search (GET /api/external/books) calls the Google Books API from
+	//     the Go service and stores nothing. ListBooksByExternalIDs marks which
+	//     results are already in the local library.
+	//   * Library search (SearchBooks, GET /api/books) searches the local books
+	//     table: seed rows, imported Google rows, and user-created rows.
+	// A Google result becomes a local row through ImportGoogleBook only when a
+	// user acts on it, because every user-activity table references books.book_id.
+	//
+	// Library search uses both full-text ranking (title/description) and
+	// trigram-style ILIKE membership through authors and categories. EXISTS keeps
+	// the outer result one row per book; json_agg provides the many-to-many arrays.
 	//
 	// User text is used as a substring pattern, so LIKE wildcards are escaped:
 	// searching for `100%` or `a_b` matches those characters literally.
 	SearchBooks(ctx context.Context, arg SearchBooksParams) ([]SearchBooksRow, error)
 	TopRatedBooks(ctx context.Context, arg TopRatedBooksParams) ([]TopRatedBooksRow, error)
+	// Google-imported rows are read-only here: their content belongs to Google and
+	// is shown with Google attribution. The service returns 403 for them; the
+	// source filter is the database-side guard.
 	UpdateBook(ctx context.Context, arg UpdateBookParams) (UpdateBookRow, error)
 	UpdateReview(ctx context.Context, arg UpdateReviewParams) (UpdateReviewRow, error)
 	UpdateUser(ctx context.Context, arg UpdateUserParams) (UpdateUserRow, error)

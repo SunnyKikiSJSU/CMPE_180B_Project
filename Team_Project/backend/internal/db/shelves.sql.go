@@ -163,6 +163,9 @@ SELECT
     b.publisher,
     b.page_count,
     b.cover_url,
+    b.google_books_id,
+    b.source,
+    b.published_date_precision,
     (
         SELECT a.name
         FROM book_authors ba
@@ -235,30 +238,33 @@ type ListShelfBooksParams struct {
 }
 
 type ListShelfBooksRow struct {
-	BookID            uuid.UUID
-	Isbn13            pgtype.Text
-	Title             string
-	Description       pgtype.Text
-	PublishedDate     pgtype.Date
-	Publisher         pgtype.Text
-	PageCount         pgtype.Int4
-	CoverUrl          pgtype.Text
-	PrimaryAuthor     string
-	Authors           interface{}
-	Categories        interface{}
-	AverageRating     float64
-	RatingCount       int32
-	ReviewCount       int32
-	AddedAt           pgtype.Timestamptz
-	MovedAt           pgtype.Timestamptz
-	ProgressStatus    pgtype.Text
-	CurrentPage       pgtype.Int4
-	TotalPages        int32
-	PercentComplete   pgtype.Numeric
-	ProgressVersion   pgtype.Int4
-	ProgressUpdatedAt pgtype.Timestamptz
-	LastActivityAt    interface{}
-	TotalCount        int32
+	BookID                 uuid.UUID
+	Isbn13                 pgtype.Text
+	Title                  string
+	Description            pgtype.Text
+	PublishedDate          pgtype.Date
+	Publisher              pgtype.Text
+	PageCount              pgtype.Int4
+	CoverUrl               pgtype.Text
+	GoogleBooksID          pgtype.Text
+	Source                 string
+	PublishedDatePrecision pgtype.Text
+	PrimaryAuthor          string
+	Authors                interface{}
+	Categories             interface{}
+	AverageRating          float64
+	RatingCount            int32
+	ReviewCount            int32
+	AddedAt                pgtype.Timestamptz
+	MovedAt                pgtype.Timestamptz
+	ProgressStatus         pgtype.Text
+	CurrentPage            pgtype.Int4
+	TotalPages             int32
+	PercentComplete        pgtype.Numeric
+	ProgressVersion        pgtype.Int4
+	ProgressUpdatedAt      pgtype.Timestamptz
+	LastActivityAt         interface{}
+	TotalCount             int32
 }
 
 func (q *Queries) ListShelfBooks(ctx context.Context, arg ListShelfBooksParams) ([]ListShelfBooksRow, error) {
@@ -284,6 +290,9 @@ func (q *Queries) ListShelfBooks(ctx context.Context, arg ListShelfBooksParams) 
 			&i.Publisher,
 			&i.PageCount,
 			&i.CoverUrl,
+			&i.GoogleBooksID,
+			&i.Source,
+			&i.PublishedDatePrecision,
 			&i.PrimaryAuthor,
 			&i.Authors,
 			&i.Categories,
