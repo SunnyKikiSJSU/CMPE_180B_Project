@@ -1,11 +1,19 @@
 openapi: 3.0.3
 info:
   title: Book Metaverse Portal API
-  version: 0.1.0
+  version: 0.2.0
   description: |
     REST contract for the Book Metaverse Portal. PostgreSQL is the source of
     truth; all access goes through this API. List endpoints return JSON arrays
     and expose pagination through X-Total-Count, X-Page, and X-Page-Size.
+
+    Book discovery uses the Google Books API through this server
+    (GET /api/external/books); the browser never calls Google and never sees
+    the API key. Google results are not stored. A result becomes a local
+    catalog book only when a user imports it (POST /api/books/import), which
+    happens before the user shelves, rates, reviews, or tracks it. Every
+    user-activity endpoint takes the local bookId UUID, never a Google ID.
+    Content from Google must be shown with Google attribution and infoLink.
 
     Authentication uses the bm_session HttpOnly cookie or an
     Authorization: Bearer <jwt> header. Personal endpoints are scoped to the
@@ -305,8 +313,12 @@ paths:
     get:
       tags: [Catalog]
       operationId: searchBooks
-      summary: Search and browse the public catalog
+      summary: Search and browse the local library
       description: |
+        Library search over books already in PostgreSQL: seed books, imported
+        Google books, and user-created books. Use GET /api/external/books to
+        find books that are not in the library yet.
+
         Search matches title, description, author names, and category names.
         An empty q returns the selected sort order. Authentication is optional;
         when present, myProgress and myRating are included on book detail, not
@@ -347,7 +359,11 @@ paths:
     post:
       tags: [Catalog]
       operationId: createBook
-      summary: Add a catalog record
+      summary: Add a catalog record by hand
+      description: |
+        Creates a book with source "user". To add a Google Books volume, use
+        POST /api/books/import instead; this endpoint does not accept a Google
+        volume ID.
       security:
         - cookieAuth: []
         - bearerAuth: []
@@ -371,11 +387,133 @@ paths:
         "409":
           $ref: "#/components/responses/Conflict"
 
+  /api/external/books:
+    get:
+      tags: [Catalog]
+      operationId: searchGoogleBooks
+      summary: Search Google Books
+      description: |
+        Calls the Google Books volumes search from the server and returns
+        normalized results. Nothing is written to the database. Each result
+        carries bookId when the volume (or a book with the same ISBN-13) is
+        already in the library; otherwise import it before acting on it.
+
+        At least one of q, title, author, category, or isbn is required.
+        title, author, category, and isbn map to Google's intitle:, inauthor:,
+        subject:, and isbn: operators. X-Total-Count is Google's totalItems,
+        which is an estimate and can change between pages. pageSize is capped
+        at 40 by Google. Responses are cached in memory for a short time.
+
+        Results contain Google content: show "Powered by Google" attribution
+        and link each result to its infoLink.
+      parameters:
+        - name: q
+          in: query
+          description: Free-text keywords.
+          schema:
+            type: string
+            maxLength: 200
+        - name: title
+          in: query
+          schema:
+            type: string
+            maxLength: 200
+        - name: author
+          in: query
+          schema:
+            type: string
+            maxLength: 200
+        - name: category
+          in: query
+          description: Google subject, for example Fantasy.
+          schema:
+            type: string
+            maxLength: 100
+        - name: isbn
+          in: query
+          description: ISBN-10 or ISBN-13, digits only.
+          schema:
+            type: string
+            pattern: "^([0-9]{9}[0-9Xx]|[0-9]{13})$"
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [relevance, newest]
+            default: relevance
+        - $ref: "#/components/parameters/Page"
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 40
+            default: 20
+      responses:
+        "200":
+          $ref: "#/components/responses/ExternalBookList"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "502":
+          $ref: "#/components/responses/UpstreamUnavailable"
+        "503":
+          $ref: "#/components/responses/UpstreamRateLimited"
+
+  /api/books/import:
+    post:
+      tags: [Catalog]
+      operationId: importGoogleBook
+      summary: Add a Google Books volume to the library
+      description: |
+        Fetches the volume from Google by ID, normalizes it, and stores it as a
+        local book with source "google". Client-supplied metadata is never
+        trusted; only the volume ID is read from the body.
+
+        Idempotent: if the volume, or another book with the same ISBN-13, is
+        already in the library, that book is returned with 200 and nothing is
+        written. Google's own ratings are never stored.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportBookRequest"
+      responses:
+        "200":
+          description: The book was already in the library.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Book"
+        "201":
+          description: The volume was imported.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Book"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "502":
+          $ref: "#/components/responses/UpstreamUnavailable"
+        "503":
+          $ref: "#/components/responses/UpstreamRateLimited"
+
   /api/search:
     get:
       tags: [Catalog]
       operationId: searchAlias
-      summary: Alias of GET /api/books
+      summary: Alias of GET /api/books (library search)
       parameters:
         - name: q
           in: query
@@ -408,6 +546,9 @@ paths:
       tags: [Catalog]
       operationId: updateBook
       summary: Correct catalog metadata
+      description: |
+        Seed and user-created books only. Books with source "google" return
+        403 because their content comes from Google and carries attribution.
       security:
         - cookieAuth: []
         - bearerAuth: []
@@ -428,6 +569,8 @@ paths:
           $ref: "#/components/responses/ValidationError"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
 
@@ -1402,6 +1545,40 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
+    UpstreamUnavailable:
+      description: Google Books failed, timed out, or returned an unusable response (UPSTREAM_UNAVAILABLE).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    UpstreamRateLimited:
+      description: The server's Google Books quota is exhausted (UPSTREAM_RATE_LIMITED). Library search still works.
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying.
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    ExternalBookList:
+      description: One page of Google Books results.
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/ExternalBook"
+      headers:
+        X-Total-Count:
+          description: Google's estimated total; it can change between pages.
+          schema:
+            type: integer
+        X-Page:
+          $ref: "#/components/headers/XPage"
+        X-Page-Size:
+          $ref: "#/components/headers/XPageSize"
     BookList:
       description: Paginated book list.
       content:
@@ -1627,9 +1804,15 @@ components:
               items:
                 $ref: "#/components/schemas/Book"
 
+    BookSource:
+      type: string
+      enum: [seed, google, user]
+      description: |
+        seed: synthetic demonstration data. google: imported from Google Books
+        and shown with Google attribution. user: added by hand.
     Book:
       type: object
-      required: [id, title, author, authors, categories]
+      required: [id, title, author, authors, categories, source]
       properties:
         id:
           type: string
@@ -1638,7 +1821,9 @@ components:
           type: string
         author:
           type: string
-          description: Primary author name retained for frontend compatibility.
+          description: |
+            Primary author name retained for frontend compatibility.
+            "Unknown author" when the book has no authors (some Google volumes).
         authors:
           type: array
           items:
@@ -1647,12 +1832,26 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Category"
+        source:
+          $ref: "#/components/schemas/BookSource"
+        infoLink:
+          type: string
+          format: uri
+          nullable: true
+          description: Google Books page for source "google"; null otherwise.
         description:
           type: string
           nullable: true
         publishedDate:
           type: string
           format: date
+          nullable: true
+          description: |
+            For year or month precision this is the first day of that year or
+            month; display it according to publishedDatePrecision.
+        publishedDatePrecision:
+          type: string
+          enum: [year, month, day]
           nullable: true
         publisher:
           type: string
@@ -1714,8 +1913,72 @@ components:
         coverUrl:
           type: string
           format: uri
+    ImportBookRequest:
+      type: object
+      required: [googleBooksId]
+      additionalProperties: false
+      properties:
         googleBooksId:
           type: string
+          pattern: "^[A-Za-z0-9_-]{1,64}$"
+          example: zyTCAlFPjgYC
+    ExternalBook:
+      type: object
+      description: A normalized Google Books volume. Not stored by this response.
+      required: [googleBooksId, title, authors, categories, infoLink, source]
+      properties:
+        googleBooksId:
+          type: string
+        bookId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Local book ID when the volume is already in the library.
+        title:
+          type: string
+        subtitle:
+          type: string
+          nullable: true
+        authors:
+          type: array
+          items:
+            type: string
+          description: Empty when Google lists no authors.
+        categories:
+          type: array
+          items:
+            type: string
+          description: Last segment of each Google category path, deduplicated.
+        description:
+          type: string
+          nullable: true
+          description: Plain text; Google's HTML is stripped by the server.
+        publishedDate:
+          type: string
+          nullable: true
+          description: As given by Google, for example 2004, 2004-05, or 2004-05-12.
+        publisher:
+          type: string
+          nullable: true
+        pageCount:
+          type: integer
+          minimum: 1
+          nullable: true
+        isbn13:
+          type: string
+          pattern: "^[0-9]{13}$"
+          nullable: true
+        coverUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: Always https.
+        infoLink:
+          type: string
+          format: uri
+        source:
+          type: string
+          enum: [google]
     BookUpdate:
       type: object
       properties:

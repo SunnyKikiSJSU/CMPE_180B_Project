@@ -26,9 +26,38 @@ field name or database constraint. `requestId` matches the request log entry.
 | `NOT_FOUND` | 404 | Resource missing or owned by another user |
 | `CONFLICT` | 409 | Duplicate resource, duplicate review/rating, duplicate shelf name |
 | `STALE_VERSION` | 409 | `reading_progress.version` does not match the current row |
-| `RATE_LIMITED` | 429 | Authentication or general rate limit exceeded |
+| `RATE_LIMITED` | 429 | Authentication, general, or Google-search rate limit exceeded for this client |
+| `UPSTREAM_UNAVAILABLE` | 502 | Google Books failed, timed out, or returned an unusable response |
+| `UPSTREAM_RATE_LIMITED` | 503 | The server's Google Books quota is exhausted; includes `Retry-After` |
 | `DATABASE_UNAVAILABLE` | 503 | The pool cannot reach PostgreSQL |
 | `INTERNAL` | 500 | Unexpected failure; details are logged, not returned |
+
+## Google Books mapping
+
+Only `GET /api/external/books` and `POST /api/books/import` call Google. Every
+other endpoint reads PostgreSQL only, so a Google outage never breaks library
+search, shelves, progress, reviews, or reports.
+
+| Google response | API response |
+| --- | --- |
+| `200` | Normalized result; `200` for search, `201` or `200` for import |
+| `404` for a volume ID | `404 NOT_FOUND` with `details.googleBooksId` |
+| `400` (bad query) | `400 VALIDATION_ERROR` |
+| `403` with reason `unknownLocation` | `502 UPSTREAM_UNAVAILABLE`; set `GOOGLE_BOOKS_COUNTRY` |
+| `403` or `429` with a quota/rate reason | `503 UPSTREAM_RATE_LIMITED` with `Retry-After` |
+| `5xx`, timeout, or malformed JSON | `502 UPSTREAM_UNAVAILABLE` |
+| Volume has no title | `400 VALIDATION_ERROR` with `details.reason = "volume has no title"` |
+
+Google's status and body are logged with the request ID. They are never
+returned to the client, and the API key never appears in logs.
+
+Import race: two users importing the same volume at once both get the same
+book. A different volume with an ISBN-13 that is already in the library raises
+`23505` on `books_isbn13_unique`; the service returns the existing book with
+`200` instead of `409`.
+
+`PATCH /api/books/{bookId}` on a book with `source = "google"` returns
+`403 FORBIDDEN`.
 
 ## PostgreSQL mapping
 
