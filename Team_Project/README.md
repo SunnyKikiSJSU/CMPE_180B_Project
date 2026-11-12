@@ -98,6 +98,10 @@ The core relational entities are:
 - `ratings` and `reviews`
 - `book_rating_summaries`
 
+The diagram is [`ER_diagram.png`](ER_diagram.png). [`ER_diagram.md`](ER_diagram.md)
+explains how to read it and lists every entity, relationship, and omitted
+column. The migrations remain the source of truth.
+
 Important relationships include:
 
 - Each user has one profile and owns multiple shelves.

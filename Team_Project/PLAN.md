@@ -31,7 +31,7 @@ outside the database MVP.
 | Infrastructure | Terraform provisions RDS, a security group, Secrets Manager, and an EC2 IAM role/profile | No application deployment, custom network, backup policy, alerting, or S3 resources |
 | Documentation | Root README and infrastructure README exist | `docs/` is missing, the root README links to `docs/README.md`, and several status statements are stale |
 | Testing | Frontend lint and production build pass | No unit, API, database, concurrency, performance, or end-to-end tests |
-| ER model | `ER_digram.png` contains the current relational model | Filename is misspelled, the image is untracked, and the model is not yet implemented as SQL |
+| ER model | `ER_diagram.png` and its guide `ER_diagram.md` describe the relational model, including the Google Books columns from migration `000006` | The files are untracked in Git; the model is implemented as SQL in migrations `000001`-`000006` |
 
 ### Confirmed dependencies
 
@@ -54,7 +54,8 @@ Team_Project/
 |-- README.md
 |-- PLAN.md
 |-- docker-compose.yml
-|-- ER_digram.png
+|-- ER_diagram.png
+|-- ER_diagram.md
 |
 |-- backend/
 |   `-- README.md
@@ -352,17 +353,17 @@ Restore the missing `docs/` directory and use it for:
 
 - `docs/architecture/`: current system diagrams and decisions.
 - `docs/api/`: OpenAPI contract, endpoint examples, and error format.
-- `docs/database/`: schema dictionary, ER diagram, query catalog, and migration
-  notes.
-- `docs/diagrams/`: reliably named files such as `er-diagram.png`.
+- `docs/database/`: schema dictionary, query catalog, and migration notes. The
+  ER diagram is `ER_diagram.png` with its guide `ER_diagram.md` at the top
+  level of `Team_Project/`.
+- `docs/diagrams/`: other reviewed diagrams with reliable names.
 - `docs/runbooks/`: local setup, RDS connection, migration, seed, backup, and
   restore procedures.
 - `docs/evidence/`: transaction, concurrency, validation, and performance
   results.
 
-The existing `ER_digram.png` should be reviewed, renamed to `er_diagram.png` or
-`er-diagram.png`, moved under `docs/diagrams/`, and referenced from the root
-README after the file is intentionally added to Git.
+`ER_diagram.png` and `ER_diagram.md` stay where they are and are linked from the
+root README. They still need to be added to Git on purpose.
 
 ## 6. Implementation Phases
 

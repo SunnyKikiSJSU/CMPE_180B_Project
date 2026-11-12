@@ -1534,8 +1534,7 @@ docs/api/
 docs/database/
   schema-dictionary.md  # Table/column meanings, constraints, ownership, and cascade rules
   query-catalog.md      # q01-q10 with purpose, SQL, parameters, and expected output
-docs/diagrams/
-  er-diagram.png        # Reviewed ER diagram linked from the root README
+docs/diagrams/          # Other reviewed diagrams, if any (the ER diagram is at the top level, below)
 docs/evidence/
   transactions.md       # Commit and deliberate-rollback output for the three transactions
   concurrency.md        # Multi-session output, locks, isolation levels, and observed results
@@ -1563,10 +1562,17 @@ Canonical function/trigger DDL lives in the migrations. The `functions/` and
 `triggers/` files are evidence copies and must be checked against the migration
 text; note this in their README files.
 
-Move `finalized_er_diagram.png` from the repository root to
-`docs/diagrams/er-diagram.png` and reference it from the root README. Before
-moving it, add the `000006` columns to the `BOOKS` entity (`source`,
-`published_date_precision`, `imported_at`). No entity or relationship changes.
+The ER diagram is `ER_diagram.png` at the top level of `Team_Project/`, with its
+reading guide `ER_diagram.md` (entity and relationship tables, a Mermaid
+relational equivalent, and a check against the migrations). It already includes
+the `000006` columns on `BOOKS`. The old `finalized_er_diagram.png` is
+superseded and removed. Reference both files from the root README, and keep
+them in step with every migration that changes a table or column; update
+`database/schema/schema.sql` at the same time.
+
+Known limitation recorded in `ER_diagram.md` section 8: authors are identified
+by name (case-insensitive unique), so two people with the same name share one
+row.
 
 Update stale statements:
 
@@ -1834,6 +1840,7 @@ The project is complete when:
 | Testcontainers unavailable on a teammate machine | Integration tests skipped locally | Run them in CI and document the Docker requirement |
 | Concurrent summary updates look flaky | Weak evidence | Record isolation level, seed state, session order, and final counts; use deterministic fixtures |
 | No admin role | Any authenticated user can add catalog records | Document the MVP limitation; add `users.role` in a post-MVP migration if required |
+| Authors are identified by name (`authors_name_ci_unique_idx`) | Two different people with the same name share one author row | Accepted for the MVP: Google returns names without IDs and `UpsertAuthor` depends on the unique name. Documented in `ER_diagram.md` section 8 |
 | Google Books unavailable or slow during the demo | Discovery search and import fail | 5 s timeout and `UPSTREAM_*` errors; the UI falls back to library search; reports and evidence use seed data only; import the demo books before the presentation |
 | Google quota exhausted (about 1,000 requests/day by default; anonymous is lower) | Search returns `503` | Use an API key, 10-minute search cache, 30/min per-IP limit; tests use a fake server, never the real API |
 | Google query operators misbehave (`intitle:`/`inauthor:`/`isbn:` returned 0 results in October 2026 until a reported fix on 2026-11-02) | Filtered Google search returns nothing | Rehearse the demo queries; free-text `q` and library search still work |
