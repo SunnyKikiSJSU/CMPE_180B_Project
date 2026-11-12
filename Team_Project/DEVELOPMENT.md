@@ -83,6 +83,22 @@ JWT_SECRET=choose-a-long-local-secret
 
 Do not place real credentials in `.env.example` or commit `.env`.
 
+### Google Books values (both modes)
+
+Book search calls the Google Books API from the API server. These are
+optional for local work:
+
+```dotenv
+GOOGLE_BOOKS_API_KEY=your-google-books-api-key
+GOOGLE_BOOKS_COUNTRY=US
+```
+
+Without a key, Google allows only a small anonymous quota. To create a key,
+enable the Books API in a Google Cloud project, create an API key, and restrict
+it to the Books API. Keep it in `.env` only; it must never go into a
+`NEXT_PUBLIC_*` variable or the frontend. Automated tests use a fake Google
+server and need no key.
+
 The RDS security group must allow TCP port `5432` from either:
 
 - The current public IP as a `/32` rule when connecting from a laptop.
