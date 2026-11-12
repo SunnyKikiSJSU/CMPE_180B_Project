@@ -13,6 +13,8 @@ Place versioned `golang-migrate` migration pairs in this directory:
 000004_reporting_indexes.down.sql
 000005_progress_and_history_fixes.up.sql
 000005_progress_and_history_fixes.down.sql
+000006_book_sources.up.sql
+000006_book_sources.down.sql
 ```
 
 The Compose `migrate` service mounts this directory at `/migrations` and runs
@@ -27,6 +29,19 @@ all pending migrations against the local PostgreSQL database.
 | `000003_domain_rules` | `updated_at` triggers, default shelves/profile, status-shelf uniqueness, rating validation, rating/review summaries, progress validation, immutable history, `version`, shelf/progress functions, backfills |
 | `000004_reporting_indexes` | Composite/partial indexes for dashboards and reports |
 | `000005_progress_and_history_fixes` | Replaces three `000003` functions: page/status transitions in `fn_validate_reading_progress` (a finished book can be re-read, paused, or re-queued), `BM001` for stale versions in `fn_update_reading_progress`, and cascade-safe `fn_block_history_mutation`. The down file restores the `000003` definitions exactly. |
+| `000006_book_sources` | `books.source` (`seed`, `google`, `user`), `books.published_date_precision` (`year`, `month`, `day`), and `books.imported_at` with four CHECK constraints. Backfills seed rows (`seed-book-*`, `smoke-test-*`) as `seed` and existing dates as `day`. The down file drops only these columns; imported rows stay. |
+
+### Book sources (after `000006`)
+
+Users search Google Books live; a result is stored only when a user acts on it
+(`ImportGoogleBook`). `book_id` stays the only key other tables reference.
+`google_books_id` is the Google volume ID for deduplication, together with
+`isbn13`. Seed rows keep synthetic IDs in `google_books_id` and are marked
+`source = 'seed'` so they never get Google attribution. Google may return a
+date as `2004` or `2004-05`; it is stored as `2004-01-01` or `2004-05-01` with
+precision `year` or `month`.
+
+A database already at version 5 only needs `migrate up`; no reseed is needed.
 
 ### Reading-progress rules (after `000005`)
 

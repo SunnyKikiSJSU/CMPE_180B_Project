@@ -9,9 +9,21 @@ refreshed without a manual reset.
 | File | Purpose |
 | --- | --- |
 | `001_smoke_test.sql` | One connected row set that proves migrations, constraints, triggers, and connectivity work |
-| `002_reference_data.sql` | 50 authors, 15 categories, 200 books, and their many-to-many links |
+| `002_reference_data.sql` | 50 authors, 15 categories, 200 books (`source = 'seed'`), and their many-to-many links |
 | `003_demo_activity.sql` | 50 users, default/custom shelves, 500 shelf items, 500 progress rows, 300 ratings, 300 reviews, and 500 history events |
 | `004_refresh_summaries.sql` | Rebuilds `book_rating_summaries` after bulk inserts |
+
+## Seed books and Google Books
+
+Seed books are synthetic. Their `google_books_id` values (`seed-book-<n>`,
+`smoke-test-google-books-id`) are placeholders, not Google volumes, and the
+rows are marked `source = 'seed'` so they are never shown with Google
+attribution. Real books come from Google Books search and are imported one at
+a time when a user acts on them.
+
+**Never add Google Books data to a seed file.** This repository is public, and
+committing Google content would redistribute it. Reports and evidence use the
+seed books because their activity is fixed and reproducible.
 
 ## Distribution
 

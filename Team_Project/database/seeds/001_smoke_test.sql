@@ -64,7 +64,9 @@ INSERT INTO books (
     published_date,
     publisher,
     page_count,
-    cover_url
+    cover_url,
+    source,
+    published_date_precision
 )
 VALUES (
     '00000000-0000-4000-8000-000000000004',
@@ -75,7 +77,10 @@ VALUES (
     DATE '2026-01-15',
     'Smoke Test Press',
     200,
-    NULL
+    NULL,
+    -- Synthetic ID, not a real Google volume: never shown with Google attribution.
+    'seed',
+    'day'
 )
 ON CONFLICT DO NOTHING;
 

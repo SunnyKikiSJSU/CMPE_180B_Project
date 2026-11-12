@@ -127,8 +127,12 @@ INSERT INTO books (
     published_date,
     publisher,
     page_count,
-    cover_url
+    cover_url,
+    source,
+    published_date_precision
 )
+-- source = 'seed': "seed-book-<n>" is a synthetic ID, not a Google volume.
+-- No seed file may contain data fetched from Google Books (public repository).
 SELECT
     ('00000000-0000-4000-8003-' || lpad(n::text, 12, '0'))::uuid,
     'seed-book-' || n,
@@ -139,7 +143,9 @@ SELECT
     DATE '1990-01-01' + ((n * 53) % 12000),
     'Book Metaverse Press',
     120 + ((n * 17) % 480),
-    'https://picsum.photos/seed/book-' || n || '/400/600'
+    'https://picsum.photos/seed/book-' || n || '/400/600',
+    'seed',
+    'day'
 FROM seed_book_data
 ON CONFLICT DO NOTHING;
 

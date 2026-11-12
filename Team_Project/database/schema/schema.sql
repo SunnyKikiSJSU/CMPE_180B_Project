@@ -62,6 +62,9 @@ CREATE TABLE books (
     page_count INTEGER,
     cover_url TEXT,
     search_vector TSVECTOR,
+    source TEXT NOT NULL DEFAULT 'user',
+    published_date_precision TEXT,
+    imported_at TIMESTAMPTZ,
     CONSTRAINT books_google_books_id_unique UNIQUE (google_books_id),
     CONSTRAINT books_isbn13_unique UNIQUE (isbn13),
     CONSTRAINT books_title_not_blank
@@ -69,7 +72,21 @@ CREATE TABLE books (
     CONSTRAINT books_isbn13_format
         CHECK (isbn13 IS NULL OR isbn13 ~ '^[0-9]{13}$'),
     CONSTRAINT books_page_count_positive
-        CHECK (page_count IS NULL OR page_count > 0)
+        CHECK (page_count IS NULL OR page_count > 0),
+    CONSTRAINT books_source_valid
+        CHECK (source IN ('seed', 'google', 'user')),
+    CONSTRAINT books_google_source_complete
+        CHECK (
+            source <> 'google'
+            OR (google_books_id IS NOT NULL AND imported_at IS NOT NULL)
+        ),
+    CONSTRAINT books_published_date_precision_valid
+        CHECK (
+            published_date_precision IS NULL
+            OR published_date_precision IN ('year', 'month', 'day')
+        ),
+    CONSTRAINT books_published_date_precision_matches
+        CHECK ((published_date IS NULL) = (published_date_precision IS NULL))
 );
 
 CREATE TABLE book_authors (
