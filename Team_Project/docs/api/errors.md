@@ -19,14 +19,16 @@ and is also sent in the `X-Request-ID` response header.
 
 ## Browser client rules
 
-- CORS exposes `X-Total-Count`, `X-Page`, `X-Page-Size`, `X-Request-ID`, and
-  `Retry-After`; other response headers are invisible to frontend code.
+- The browser calls `/api/...` on the web app's own origin and Next.js forwards
+  the request to the Go API, so there is no CORS and every response header
+  (including `X-Total-Count`, `X-Page`, `X-Page-Size`, and `X-Request-ID`) is
+  readable.
 - `204` responses (logout, password change, every `DELETE`) have no body.
 - `401 UNAUTHENTICATED` means the session is missing or expired, except on
   `POST /api/auth/login`, where it means wrong credentials.
 - A wrong `currentPassword` on `PUT /api/users/me/password` is
   `400 VALIDATION_ERROR` with `details.field = "currentPassword"`, never `401`.
-- `429` and `503` may carry `Retry-After` (seconds).
+- The API does not rate-limit clients.
 
 ## Codes
 
@@ -38,9 +40,7 @@ and is also sent in the `X-Request-ID` response header.
 | `NOT_FOUND` | 404 | Resource missing or owned by another user |
 | `CONFLICT` | 409 | Duplicate resource, duplicate review/rating, duplicate shelf name |
 | `STALE_VERSION` | 409 | `reading_progress.version` does not match the current row |
-| `RATE_LIMITED` | 429 | Authentication, general, or Google-search rate limit exceeded for this client |
-| `UPSTREAM_UNAVAILABLE` | 502 | Google Books failed, timed out, or returned an unusable response |
-| `UPSTREAM_RATE_LIMITED` | 503 | The server's Google Books quota is exhausted; includes `Retry-After` |
+| `UPSTREAM_UNAVAILABLE` | 502 | Google Books failed, timed out, is over its quota, or returned an unusable response |
 | `DATABASE_UNAVAILABLE` | 503 | The pool cannot reach PostgreSQL |
 | `INTERNAL` | 500 | Unexpected failure; details are logged, not returned |
 
@@ -56,7 +56,7 @@ search, shelves, progress, reviews, or reports.
 | `404` for a volume ID | `404 NOT_FOUND` with `details.googleBooksId` |
 | `400` (bad query) | `400 VALIDATION_ERROR` |
 | `403` with reason `unknownLocation` | `502 UPSTREAM_UNAVAILABLE`; set `GOOGLE_BOOKS_COUNTRY` |
-| `403` or `429` with a quota/rate reason | `503 UPSTREAM_RATE_LIMITED` with `Retry-After` |
+| `403` or `429` with a quota/rate reason | `502 UPSTREAM_UNAVAILABLE`; the message says Google is over its quota |
 | `5xx`, timeout, or malformed JSON | `502 UPSTREAM_UNAVAILABLE` |
 | Volume has no title | `400 VALIDATION_ERROR` with `details.reason = "volume has no title"` |
 

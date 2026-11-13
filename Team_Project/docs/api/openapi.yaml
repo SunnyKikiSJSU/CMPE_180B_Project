@@ -19,15 +19,16 @@ info:
     Authorization: Bearer <jwt> header. Personal endpoints are scoped to the
     authenticated user; resources owned by another user return 404.
 
-    Browser clients: CORS exposes X-Total-Count, X-Page, X-Page-Size,
-    X-Request-ID, and Retry-After. 204 responses have no body. 401 means the
-    session is missing or expired; a wrong password on login is also 401, and a
-    wrong currentPassword on password change is 400.
+    Browser clients call /api/... on the web app's own origin and Next.js
+    forwards the request to this server, so no CORS configuration is needed.
+    204 responses have no body. 401 means the session is missing or expired;
+    a wrong password on login is also 401, and a wrong currentPassword on
+    password change is 400. There is no rate limiting.
 servers:
   - url: http://localhost:8080
     description: Local development
-  - url: https://api.example.com
-    description: Deployed API (replace with the real host)
+  - url: http://localhost:3000
+    description: Through the Next.js proxy (what the browser uses)
 tags:
   - name: Health
   - name: Authentication
@@ -67,10 +68,10 @@ paths:
       tags: [Health]
       operationId: ready
       summary: Readiness probe
-      description: Confirms the pool connects and the schema migration version is current.
+      description: Confirms the pool can reach PostgreSQL.
       responses:
         "200":
-          description: Database connected and schema current.
+          description: Database connected.
           content:
             application/json:
               schema:
@@ -126,8 +127,6 @@ paths:
           $ref: "#/components/responses/ValidationError"
         "409":
           $ref: "#/components/responses/Conflict"
-        "429":
-          $ref: "#/components/responses/RateLimited"
 
   /api/auth/login:
     post:
@@ -151,8 +150,6 @@ paths:
           $ref: "#/components/responses/ValidationError"
         "401":
           $ref: "#/components/responses/Unauthorized"
-        "429":
-          $ref: "#/components/responses/RateLimited"
 
   /api/auth/logout:
     post:
@@ -411,7 +408,7 @@ paths:
         title, author, category, and isbn map to Google's intitle:, inauthor:,
         subject:, and isbn: operators. X-Total-Count is Google's totalItems,
         which is an estimate and can change between pages. pageSize is capped
-        at 40 by Google. Responses are cached in memory for a short time.
+        at 40 by Google.
 
         Results contain Google content: show "Powered by Google" attribution
         and link each result to its infoLink.
@@ -463,12 +460,8 @@ paths:
           $ref: "#/components/responses/ExternalBookList"
         "400":
           $ref: "#/components/responses/ValidationError"
-        "429":
-          $ref: "#/components/responses/RateLimited"
         "502":
           $ref: "#/components/responses/UpstreamUnavailable"
-        "503":
-          $ref: "#/components/responses/UpstreamRateLimited"
 
   /api/books/import:
     post:
@@ -511,28 +504,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
-        "429":
-          $ref: "#/components/responses/RateLimited"
         "502":
           $ref: "#/components/responses/UpstreamUnavailable"
-        "503":
-          $ref: "#/components/responses/UpstreamRateLimited"
-
-  /api/search:
-    get:
-      tags: [Catalog]
-      operationId: searchAlias
-      summary: Alias of GET /api/books (library search)
-      parameters:
-        - name: q
-          in: query
-          schema:
-            type: string
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PageSize"
-      responses:
-        "200":
-          $ref: "#/components/responses/BookList"
 
   /api/books/{bookId}:
     parameters:
@@ -1144,34 +1117,6 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
-    put:
-      tags: [Progress]
-      operationId: replaceReadingProgress
-      summary: Replace progress for one book
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ProgressUpdateRequest"
-      responses:
-        "200":
-          description: Updated progress.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ReadingProgress"
-        "400":
-          $ref: "#/components/responses/ValidationError"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
     delete:
       tags: [Progress]
       operationId: deleteReadingProgress
@@ -1542,12 +1487,6 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
-    RateLimited:
-      description: Too many requests.
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorEnvelope"
     ServiceUnavailable:
       description: Database unavailable.
       content:
@@ -1555,18 +1494,7 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
     UpstreamUnavailable:
-      description: Google Books failed, timed out, or returned an unusable response (UPSTREAM_UNAVAILABLE).
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorEnvelope"
-    UpstreamRateLimited:
-      description: The server's Google Books quota is exhausted (UPSTREAM_RATE_LIMITED). Library search still works.
-      headers:
-        Retry-After:
-          description: Seconds to wait before retrying.
-          schema:
-            type: integer
+      description: Google Books failed, timed out, is over its quota, or returned an unusable response (UPSTREAM_UNAVAILABLE). Library search still works.
       content:
         application/json:
           schema:
@@ -1668,7 +1596,7 @@ components:
         password:
           type: string
           minLength: 8
-          maxLength: 128
+          maxLength: 72
           format: password
         displayName:
           type: string
@@ -1723,7 +1651,7 @@ components:
         newPassword:
           type: string
           minLength: 8
-          maxLength: 128
+          maxLength: 72
           format: password
 
     UserProfile:
@@ -1977,6 +1905,7 @@ components:
           type: string
           pattern: "^[0-9]{13}$"
           nullable: true
+          description: Taken from Google's ISBN_13 identifier only; null when Google lists none.
         coverUrl:
           type: string
           format: uri
