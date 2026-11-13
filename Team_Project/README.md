@@ -52,10 +52,10 @@ scaffold defaults to the same engine and version.
 | Frontend data | TanStack Query | API caching, loading states, and synchronization |
 | Forms | React Hook Form and Zod | Form state and validation |
 | Backend | Go | REST API and database operations |
-| HTTP routing | Chi or Gin | Routing, middleware, and request handling |
+| HTTP routing | `chi/v5` | Routing, middleware, and request handling |
 | PostgreSQL access | `pgx` | Connection pooling and database access |
 | SQL generation | `sqlc` | Type-safe Go code generated from explicit SQL |
-| Migrations | `golang-migrate` or Goose | Versioned schema changes |
+| Migrations | `golang-migrate` | Versioned schema changes |
 | Authentication | JWT and Argon2id | Access control and password hashing |
 | Database | PostgreSQL 18 | Primary relational data store |
 | Cloud database | Amazon RDS for PostgreSQL 18 | Managed production database |
@@ -72,18 +72,24 @@ scaffold defaults to the same engine and version.
 
 ```text
 Team_Project/
-├── frontend/   # Next.js presentation tier
-├── backend/    # Go application and API tier
-├── infra/      # Terraform for the AWS data tier
-├── docs/       # Architecture, database, API, and project documentation
+├── frontend/          # Next.js presentation tier
+├── backend/           # Go application and API tier (sqlc code in internal/db)
+├── database/          # migrations, sqlc schema mirror, queries, seeds
+├── infra/             # Terraform for the AWS data tier
+├── docs/              # API contract, error catalog, examples, evidence
+├── scripts/           # dev.sh, Go install for WSL, OpenAPI validation
+├── BACKEND_PLAN.md    # backend implementation plan
+├── FRONTEND_PLAN.md   # frontend implementation and integration plan
+├── DEVELOPMENT.md     # how to run the stack locally or against RDS
+├── ER_diagram.png     # ER diagram (guide: ER_diagram.md)
 └── README.md
 ```
 
-As implementation proceeds, database artifacts should be organized under a
-shared `database/` directory for migrations, generated queries, seeds,
-functions, triggers, performance tests, and validation cases.
+Planned database evidence folders (`database/functions/`, `triggers/`,
+`tests/`, `concurrency/`, `performance/`) are listed in `BACKEND_PLAN.md` §12.
 
-See the [Terraform infrastructure notes](infra/README.md) and
+See [`BACKEND_PLAN.md`](BACKEND_PLAN.md), [`FRONTEND_PLAN.md`](FRONTEND_PLAN.md),
+the [Terraform infrastructure notes](infra/README.md), and the
 [project documentation](docs/README.md) for area-specific details.
 
 ## Data Model
@@ -272,7 +278,8 @@ storage.
 - [x] Terraform scaffold for the RDS data tier and secret storage started.
 - [x] Terraform database settings aligned with PostgreSQL 18.
 - [x] PostgreSQL Docker Compose environment and `.env.example`.
-- [ ] API and web services added to Compose after their Dockerfiles exist.
+- [x] API service in Compose (minimal Go server with `/healthz` and `/readyz`).
+- [ ] Web service in Compose (needs `frontend/Dockerfile`).
 - [x] Database schema, migrations (`000001`-`000006`), and seed data.
 - [x] API contract (`docs/api/openapi.yaml`), including Google Books search and import.
 - [ ] Go API and authentication.
@@ -283,6 +290,16 @@ storage.
 
 ## Reference Documents
 
-- [Technology Stack and Architecture](../../Book-Metaverse-Portal-Technology-Stack-and-Architecture.md)
-- [Project Proposal](../../Book-Metaverse-Portal-Project-Proposal.md)
-- [Milestone Plan](../../Book-Metaverse-Portal-Milestone-Plan.md)
+In this repository:
+
+- [Backend implementation plan](BACKEND_PLAN.md)
+- [Frontend implementation plan](FRONTEND_PLAN.md)
+- [Development setup](DEVELOPMENT.md)
+- [ER diagram guide](ER_diagram.md)
+- [API contract](docs/api/openapi.yaml)
+
+Course documents kept outside this repository (in the team's shared project
+folder, not on GitHub): *Book Metaverse Portal — Technology Stack and
+Architecture*, *Project Proposal*, and *Milestone Plan*. Where they differ from
+the files above (for example, MySQL wording), the files in this repository are
+current.

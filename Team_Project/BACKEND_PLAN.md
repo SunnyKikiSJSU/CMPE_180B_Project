@@ -496,6 +496,9 @@ Rules:
 - `percentComplete` is computed by the server from `currentPage` and
   `books.page_count`. A client-supplied percentage is accepted only when the book
   has no page count.
+- `totalPages` is `books.page_count`, or `0` when the page count is unknown
+  (common for imported Google volumes). The frontend then edits
+  `percentComplete` instead of `currentPage`.
 - `currentPage` may not exceed `books.page_count` when that value is known.
 - Reaching the last page sets `status = completed` automatically and moves the
   book to the Finished shelf in the same transaction.
@@ -1075,9 +1078,18 @@ RequestID
   -> handler
 ```
 
-- CORS must echo only allowed origins, allow `Authorization` and
-  `Content-Type`, allow credentials, and expose `X-Total-Count`, `X-Page`, and
-  `X-Page-Size`.
+- CORS must echo only allowed origins, allow methods `GET`, `POST`, `PUT`,
+  `PATCH`, `DELETE`, and `OPTIONS`, allow headers `Authorization` and
+  `Content-Type`, allow credentials, and expose `X-Total-Count`, `X-Page`,
+  `X-Page-Size`, `X-Request-ID`, and `Retry-After`. Browsers hide every
+  response header that is not exposed, so the frontend could not otherwise read
+  pagination, the request ID on non-JSON errors, or the retry delay on `429`
+  and `503` (`FRONTEND_PLAN.md` §5.1). Cache preflight responses for 10
+  minutes (`Access-Control-Max-Age: 600`).
+- Local development uses `http://localhost:3000` → `http://localhost:8080`.
+  That pair is same-site, so the `SameSite=Lax` cookie is sent with
+  credentialed `fetch`. `127.0.0.1:3000` → `localhost:8080` is cross-site and
+  drops the cookie even though both origins are in `ALLOWED_ORIGINS`.
 - The rate limiter is an in-memory token bucket keyed by client IP. Use 10/min
   for login/register, 30/min for `GET /api/external/books` and
   `POST /api/books/import` (they spend the shared Google quota), and 120/min
@@ -1125,7 +1137,9 @@ Login flow:
 4. Issue token and set cookie.
 
 Password change verifies the current password, hashes the new one, and updates
-`users.password_hash`. Deleting a user cascades to all owned data; require a
+`users.password_hash`. A wrong current password returns `400 VALIDATION_ERROR`
+with `details.field = "currentPassword"`, not `401`: the session is valid, and a
+`401` would make the frontend sign the user out. Deleting a user cascades to all owned data; require a
 JSON body `{"confirm": true}` for `DELETE /api/users/me`. Because
 `reading_history` is append-only, the delete transaction must first run
 `SET LOCAL app.allow_history_delete = 'on';` so the user cascade can remove its
@@ -1340,9 +1354,11 @@ guard.
   - Import only by volume ID, re-fetched from Google on the server.
   - Show Google attribution ("Powered by Google") and the `infoLink` on every
     search result and on the detail page of `source = google` books. Pages
-    that list stored books (shelves, progress, reports) show one page-level
-    "Book information from Google Books" notice when any listed book has
-    `source = google`.
+    that list stored books show one page-level "Book information from Google
+    Books" notice: conditionally where the rows carry `source` (library search,
+    shelf books, author/category books), and always where they do not
+    (progress, history, reports, my reviews/ratings, which return small cards
+    such as `BookSummary`). See `FRONTEND_PLAN.md` decision 10.
   - Store only books a user acted on, and never commit Google data to the
     repository. Google's API terms restrict permanent copies of API content;
     whether storing acted-on books is acceptable for this course project is an
@@ -1428,10 +1444,15 @@ The UI is built, but it is not connected. These changes are part of the
 backend completion milestone because the API cannot be considered done until
 the application uses it.
 
+**[`FRONTEND_PLAN.md`](FRONTEND_PLAN.md) is the authoritative frontend plan**:
+file names, phases F0–F8, the API client rules, and the mapping from frontend
+phases to the backend phases below (its §7.1). The table here is a summary;
+where they differ, `FRONTEND_PLAN.md` wins.
+
 | File / area | Change |
 | --- | --- |
-| `frontend/src/lib/api-client.ts` | Add `credentials: "include"`, parse the error envelope, surface `requestId`, handle `401` by invalidating auth state, expose pagination headers |
-| `frontend/src/providers/QueryClientProvider.tsx` | New TanStack Query provider with sensible retry/stale defaults |
+| `frontend/src/lib/api-client.ts` | Add `credentials: "include"`, parse the error envelope, surface `requestId` and `Retry-After`, return `undefined` for `204`, handle `401` by invalidating auth state (except login, register, and `me`), expose pagination headers |
+| `frontend/src/providers/QueryProvider.tsx` | New TanStack Query provider with sensible retry/stale defaults |
 | `frontend/src/app/layout.tsx` | Wrap the application in the query provider |
 | `frontend/src/services/auth-service.ts` | `register`, `login`, `logout`, `me` |
 | `frontend/src/services/user-service.ts` | Profile read/update, password change |
@@ -1603,7 +1624,9 @@ Update stale statements:
 `go mod tidy` and `go build ./...` pass in WSL. A clean PostgreSQL 18 database
 applied migrations `000001`-`000004` and all seeds. OpenAPI validated with
 38 paths, 53 operations, 225 refs, no missing refs, and no duplicate
-operationIds. The `.down.sql` files have not been exercised yet.
+operationIds. The `.down.sql` files were exercised the same day in a throwaway
+database: `up` → `down -all` → `up` passed, and `000005` down restored the
+`000003` function definitions exactly.
 
 **Phase 1 addendum (2026-11-10): Google Books design.**
 
@@ -1737,6 +1760,9 @@ consistent after concurrent writes.
 dataset and links to its SQL.
 
 ### Phase 8 — Frontend integration
+
+Detailed in [`FRONTEND_PLAN.md`](FRONTEND_PLAN.md) phases F2–F7; its §7.1 maps
+each frontend phase to the backend phase it needs.
 
 - [ ] Query provider and auth service.
 - [ ] Replace `localStorage` auth with cookie-backed session.

@@ -14,7 +14,19 @@ Every non-2xx response uses one envelope:
 ```
 
 `message` is safe to show to a user. `details` is optional and may contain a
-field name or database constraint. `requestId` matches the request log entry.
+field name or database constraint. `requestId` matches the request log entry
+and is also sent in the `X-Request-ID` response header.
+
+## Browser client rules
+
+- CORS exposes `X-Total-Count`, `X-Page`, `X-Page-Size`, `X-Request-ID`, and
+  `Retry-After`; other response headers are invisible to frontend code.
+- `204` responses (logout, password change, every `DELETE`) have no body.
+- `401 UNAUTHENTICATED` means the session is missing or expired, except on
+  `POST /api/auth/login`, where it means wrong credentials.
+- A wrong `currentPassword` on `PUT /api/users/me/password` is
+  `400 VALIDATION_ERROR` with `details.field = "currentPassword"`, never `401`.
+- `429` and `503` may carry `Retry-After` (seconds).
 
 ## Codes
 

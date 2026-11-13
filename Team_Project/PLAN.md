@@ -21,116 +21,79 @@ outside the database MVP.
 
 ## 2. Current Implementation Snapshot
 
+Updated 2026-11-12. This document is the original overview from October 31,
+2026. The detailed, current plans are [`BACKEND_PLAN.md`](BACKEND_PLAN.md) and
+[`FRONTEND_PLAN.md`](FRONTEND_PLAN.md); where they differ from later sections
+here, they win.
+
 | Area | Current state | Main gap |
 | --- | --- | --- |
-| Frontend | Next.js 15, React, TypeScript, Tailwind CSS UI is implemented across 11 routes | Pages use mock or empty-state data; API services are not called yet |
-| Authentication | Login writes a demo value to `localStorage` | No JWT, password hashing, API authentication, or protected server-side session |
-| Backend | Only `backend/README.md` exists | No Go module, server, handlers, repositories, services, or tests |
-| Database | Only migration and seed directory instructions exist | No schema, migrations, seed data, queries, functions, triggers, or validation tests |
-| Docker | PostgreSQL 18, `migrate`, and `seed` are defined | No API or web service because their Dockerfiles do not exist |
+| Frontend | Next.js 15, React 19, TypeScript, Tailwind CSS 4 UI across 11 routes; `npm run lint` and `npx tsc --noEmit` pass | Pages use mock or empty-state data; the 8 declared service calls are not used; see `FRONTEND_PLAN.md` |
+| Authentication | Login writes a demo value to `localStorage` | No API authentication yet (backend Phase 3) |
+| Backend | Go module, minimal server (`/`, `/healthz`, `/readyz`) on `database/sql`, Dockerfile, sqlc-generated query code in `backend/internal/db` | No config, `pgxpool`, router, middleware, auth, or business endpoints (backend Phase 2 onward) |
+| Database | Migrations `000001`-`000006` with constraints, triggers, functions, search and reporting indexes, and Google Books source columns; 66 named queries; seeds `001`-`004` (201 books, 51 users); verified on a clean PostgreSQL 18 database | No validation, concurrency, or performance evidence scripts yet |
+| API contract | `docs/api/openapi.yaml` 0.2.0 (40 paths, 55 operations), `errors.md`, `examples.md` | Not implemented by the server yet |
+| Docker | `postgres`, `api`, and `tools` services (`migrate`, `seed`, `sqlc`) locally; RDS variant | No `web` service because `frontend/Dockerfile` does not exist |
 | Infrastructure | Terraform provisions RDS, a security group, Secrets Manager, and an EC2 IAM role/profile | No application deployment, custom network, backup policy, alerting, or S3 resources |
-| Documentation | Root README and infrastructure README exist | `docs/` is missing, the root README links to `docs/README.md`, and several status statements are stale |
-| Testing | Frontend lint and production build pass | No unit, API, database, concurrency, performance, or end-to-end tests |
-| ER model | `ER_diagram.png` and its guide `ER_diagram.md` describe the relational model, including the Google Books columns from migration `000006` | The files are untracked in Git; the model is implemented as SQL in migrations `000001`-`000006` |
+| Documentation | `README.md`, `DEVELOPMENT.md`, `BACKEND_PLAN.md`, `FRONTEND_PLAN.md`, `docs/`, database READMEs | No schema dictionary, query catalog, runbooks, or evidence files yet |
+| Testing | Frontend lint and type check pass; database checks run in throwaway containers | No Go, frontend unit, end-to-end, concurrency, or performance test suites |
+| ER model | `ER_diagram.png` and its guide `ER_diagram.md`, committed, matching migrations `000001`-`000006` | Four cardinality labels at `BOOKS` on the activity relationships still read `1..1` (see `ER_diagram.md` §4) |
 
 ### Confirmed dependencies
 
 - The frontend installs and builds with `npm`.
-- `bookService` and `readingService` exist but are not imported by any page or
-  component.
 - TanStack Query, React Hook Form, and Zod are installed but not used yet.
-- Docker Compose is installed and the Compose file resolves successfully.
-- Go, `sqlc`, and Terraform are not currently available in the local `PATH`.
+- Docker Compose is installed and both Compose files resolve.
+- On the Windows host, backend work runs in WSL (Ubuntu). Go 1.27 is installed
+  in WSL; `sqlc`, `psql`, and `migrate` run as Docker images. Terraform is not
+  on the local `PATH`.
 - PostgreSQL 18 is the selected local and cloud database version.
 
 ## 3. Current Project Tree
 
 Generated directories such as `frontend/.next/` and `frontend/node_modules/` are
-excluded from this tree because they are ignored build output.
+excluded. Individual migration, query, sqlc output, and frontend source files
+are summarized.
 
 ```text
 Team_Project/
 |-- .env.example
-|-- README.md
-|-- PLAN.md
-|-- docker-compose.yml
-|-- ER_diagram.png
-|-- ER_diagram.md
+|-- README.md, PLAN.md, DEVELOPMENT.md
+|-- BACKEND_PLAN.md, FRONTEND_PLAN.md
+|-- ER_diagram.png, ER_diagram.md
+|-- docker-compose.yml, docker-compose-rdbs.yml
 |
 |-- backend/
-|   `-- README.md
+|   |-- Dockerfile, .dockerignore, go.mod, go.sum, sqlc.yaml, README.md
+|   |-- cmd/server/main.go
+|   `-- internal/db/            # sqlc-generated code (13 files), README.md
 |
 |-- database/
-|   |-- migrations/
-|   |   `-- README.md
-|   `-- seeds/
-|       `-- README.md
+|   |-- migrations/             # 000001-000006 up/down, README.md
+|   |-- schema/schema.sql       # reduced mirror read by sqlc, README.md
+|   |-- queries/                # 10 .sql files, 66 named queries, README.md
+|   `-- seeds/                  # 001-004, README.md
+|
+|-- docs/
+|   |-- README.md
+|   `-- api/                    # openapi.yaml, errors.md, examples.md
 |
 |-- frontend/
-|   |-- .env.local.example
-|   |-- .gitignore
-|   |-- README.md
-|   |-- eslint.config.mjs
-|   |-- next-env.d.ts
-|   |-- next.config.ts
-|   |-- package-lock.json
-|   |-- package.json
-|   |-- postcss.config.mjs
-|   |-- tsconfig.json
+|   |-- .env.local.example, next.config.ts, package.json, tsconfig.json, README.md
 |   `-- src/
-|       |-- app/
-|       |   |-- (workspace)/
-|       |   |   |-- layout.tsx
-|       |   |   |-- authors/page.tsx
-|       |   |   |-- catalog/page.tsx
-|       |   |   |-- dashboard/page.tsx
-|       |   |   |-- progress/page.tsx
-|       |   |   |-- reports/page.tsx
-|       |   |   |-- reviews/page.tsx
-|       |   |   |-- settings/page.tsx
-|       |   |   `-- shelves/page.tsx
-|       |   |-- explore/page.tsx
-|       |   |-- login/page.tsx
-|       |   |-- globals.css
-|       |   |-- layout.tsx
-|       |   `-- page.tsx
-|       |-- components/
-|       |   |-- AppShell.tsx
-|       |   |-- AuthBoundary.tsx
-|       |   |-- BookCarousel.tsx
-|       |   |-- DashboardView.tsx
-|       |   |-- DiscoverySection.tsx
-|       |   |-- EmptyState.tsx
-|       |   |-- FilterBar.tsx
-|       |   |-- Footer.tsx
-|       |   |-- HeroSection.tsx
-|       |   |-- Navbar.tsx
-|       |   |-- PublicHome.tsx
-|       |   |-- PublicNav.tsx
-|       |   |-- SectionPage.tsx
-|       |   `-- ShelvesSection.tsx
-|       |-- data/
-|       |   `-- mock-data.ts
-|       |-- lib/
-|       |   `-- api-client.ts
-|       |-- services/
-|       |   |-- book-service.ts
-|       |   `-- reading-service.ts
-|       `-- types/
-|           `-- domain.ts
+|       |-- app/                # 11 routes: /, /explore, /login, (workspace)/*
+|       |-- components/         # 14 components (5 unused)
+|       |-- data/mock-data.ts
+|       |-- lib/api-client.ts
+|       |-- services/           # book-service.ts, reading-service.ts
+|       `-- types/domain.ts
 |
-`-- infra/
-    |-- .gitignore
-    |-- .terraform.lock.hcl
-    |-- README.md
-    |-- iam.tf
-    |-- network.tf
-    |-- outputs.tf
-    |-- random.tf
-    |-- rds.tf
-    |-- secrets.tf
-    |-- variables.tf
-    `-- versions.tf
+|-- infra/                      # Terraform: RDS, security group, IAM, Secrets Manager
+|
+`-- scripts/
+    |-- dev.sh                  # ./scripts/dev.sh local|rds (run from WSL)
+    |-- install-go-wsl.sh
+    `-- validate_openapi.py
 ```
 
 ## 4. Target Project Tree
@@ -307,7 +270,8 @@ be implemented as an npm command and invoked by `scripts/check.sh`.
 
 Required frontend integration work:
 
-- Add `src/providers/QueryClientProvider.tsx` and wire it into the root layout.
+- Add `src/providers/QueryProvider.tsx` and wire it into the root layout
+  (file names and phases: [`FRONTEND_PLAN.md`](FRONTEND_PLAN.md)).
 - Replace `mock-data.ts` usage with TanStack Query calls through
   `bookService` and `readingService`.
 - Replace the demo `localStorage` session in `LoginPage` and `AuthBoundary`
@@ -463,11 +427,18 @@ can be demonstrated without local database access.
 
 ## 9. Immediate Next Actions
 
-1. Approve the API contract and error format.
-2. Write the initial PostgreSQL migration from the ER diagram.
-3. Add a minimal seed set that supports local development.
-4. Create the Go module and `/healthz` and `/readyz` endpoints.
-5. Connect the frontend catalog to the API through TanStack Query.
-6. Add `npm run typecheck` and `npm run check`.
-7. Restore and organize the `docs/` tree.
-8. Add backend and frontend Dockerfiles before extending Compose.
+Done: API contract and error format (`docs/api/`), migrations `000001`-`000006`,
+seeds, the Go module with `/healthz` and `/readyz`, the backend Dockerfile, and
+the `docs/` tree.
+
+Next:
+
+1. Backend Phase 2: config, `pgxpool`, `httpx`, middleware (CORS exposing the
+   pagination, `X-Request-ID`, and `Retry-After` headers), router skeleton,
+   migration-aware `/readyz` (`BACKEND_PLAN.md` §13).
+2. Frontend F0–F1: `typecheck` script, test tooling, the rewritten API client,
+   and expanded types, built against MSW mocks (`FRONTEND_PLAN.md` §7).
+3. Backend Phase 3 and frontend F2 together: real login against the cookie
+   session.
+4. Add `frontend/Dockerfile` and the Compose `web` service.
+5. Add `npm run check`.

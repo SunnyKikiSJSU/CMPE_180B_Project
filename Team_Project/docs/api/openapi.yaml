@@ -18,6 +18,11 @@ info:
     Authentication uses the bm_session HttpOnly cookie or an
     Authorization: Bearer <jwt> header. Personal endpoints are scoped to the
     authenticated user; resources owned by another user return 404.
+
+    Browser clients: CORS exposes X-Total-Count, X-Page, X-Page-Size,
+    X-Request-ID, and Retry-After. 204 responses have no body. 401 means the
+    session is missing or expired; a wrong password on login is also 401, and a
+    wrong currentPassword on password change is 400.
 servers:
   - url: http://localhost:8080
     description: Local development
@@ -258,6 +263,10 @@ paths:
       tags: [Users]
       operationId: changePassword
       summary: Change the password after verifying the current one
+      description: |
+        A wrong currentPassword returns 400 VALIDATION_ERROR with
+        details.field = "currentPassword". 401 is used only for a missing or
+        expired session, so the client never signs the user out for a typo.
       security:
         - cookieAuth: []
         - bearerAuth: []
@@ -2020,6 +2029,9 @@ components:
         totalPages:
           type: integer
           minimum: 0
+          description: |
+            books.page_count, or 0 when the page count is unknown (common for
+            imported Google volumes). With 0, clients edit percentComplete.
         percentComplete:
           type: number
           minimum: 0
@@ -2031,7 +2043,26 @@ components:
           type: string
           format: date-time
         book:
-          $ref: "#/components/schemas/Book"
+          $ref: "#/components/schemas/BookSummary"
+    BookSummary:
+      type: object
+      description: |
+        Small book card embedded in progress rows. Matches what
+        ListReadingProgress and GetReadingProgress return; fetch
+        GET /api/books/{bookId} for the full Book.
+      required: [id, title, author]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        author:
+          type: string
+          description: Primary author name, or "Unknown author".
+        coverUrl:
+          type: string
+          nullable: true
     ProgressUpdateRequest:
       type: object
       properties:
