@@ -23,7 +23,7 @@ and updating its repository call.
 
 | ID | Query | Endpoint |
 | --- | --- | --- |
-| `q01` | `SearchBooks` | `GET /api/books`, `GET /api/search` |
+| `q01` | `SearchBooks` | `GET /api/books` |
 | `q02` | `GetBookByID` + `ListBookReviews` | `GET /api/books/{bookId}` |
 | `q03` | `ListShelfBooks` | `GET /api/shelves/{shelfId}/books` |
 | `q04` | `RatingSummaryByCategory`, `RatingSummaryByAuthor` | report data |

@@ -18,7 +18,7 @@ the repository as it exists today, not against the earlier drafts.
 | Frontend | Next.js 15 app with 11 routes, shared components, `bookService`, `readingService`, `apiClient`, and domain types | Pages render static/empty states; no TanStack Query provider; login writes `localStorage`; only 8 API calls are declared |
 | Backend | `backend/cmd/server/main.go` with `/`, `/healthz`, `/readyz`; `database/sql` + pgx stdlib; Dockerfile | No auth, handlers, services, repositories, middleware, validation, or business endpoints |
 | Database | Migrations `000001`-`000006`, 66 named queries in `database/queries/`, reduced sqlc schema mirror, and seeds `001`-`004` | Phase 1 is verified on a clean database (2026-11-10); `000006` (book sources for Google Books) verified the same day; no schema dictionary or evidence package yet |
-| Docker | `postgres`, `api`, `migrate`, `seed`, and pinned `sqlc` (`tools`) services | No `web` service; API has no auth/CORS configuration |
+| Docker | `postgres`, `api`, `migrate`, `seed`, and pinned `sqlc` (`tools`) services | No `web` service; API has no auth configuration |
 | Docs | `docs/api/openapi.yaml`, `errors.md`, and `examples.md`; root `README.md`, `PLAN.md`, `DEVELOPMENT.md`, `infra/README.md` | No schema dictionary, query catalog, or evidence package |
 | Database engine | PostgreSQL 18 is implemented in the migration, Compose, and Terraform | The older Milestone Plan still says MySQL; that wording is superseded and must be corrected in docs |
 
@@ -54,7 +54,7 @@ work.
    `HTTP handler -> service -> repository -> pgxpool -> PostgreSQL`.
 4. **Router:** `chi/v5`. **Driver:** `pgx/v5` with `pgxpool` (replace the
    current `database/sql` connection in `main.go`).
-5. **Auth:** Argon2id password hashes, HS256 JWT, 60-minute access token. The
+5. **Auth:** bcrypt password hashes (cost 12), HS256 JWT, 60-minute access token. The
    token is delivered as an `HttpOnly` cookie for the browser and may also be
    read from `Authorization: Bearer` for tests and CLI use. No refresh tokens in
    the MVP.
@@ -75,6 +75,16 @@ work.
     `books.google_books_id` for deduplication and is never used as a key.
     Library search (`GET /api/books`) keeps the PostgreSQL full-text search
     for books already in the database. See Section 6.4.
+12. **Course-project scope.** The API has no rate limiter, no CORS layer, and
+    no cache. The browser only talks to the Next.js app, which forwards
+    `/api/*` to the Go API (same origin, so the session cookie works without
+    CORS). Application secrets live in the gitignored `.env`; the Go code does
+    not call Secrets Manager (the team's Terraform still creates the secret
+    that holds the database password). `APP_ENV` is only a label. Pool size,
+    token lifetime, log level, and the Google
+    base URL and timeout are constants in code. The graded work is the
+    database: schema, constraints, triggers, transactions, concurrency,
+    indexes, and query evidence (Section 12.1).
 
 ---
 
@@ -83,18 +93,21 @@ work.
 ```text
 Browser (Next.js)
       |
-      |  HTTPS / JSON, HttpOnly cookie or Bearer token
+      |  /api/... on the page's own origin; HttpOnly cookie or Bearer token
+      v
+Next.js server (rewrite: forwards /api/* to the Go API)
+      |
       v
 Go API (chi)
       |
-      +-- middleware: request ID, logging, recovery, CORS, body limit,
-      |               rate limit, authentication
+      +-- middleware: request ID, logging, recovery, timeout, body limit,
+      |               authentication
       |
       +-- handlers     parse HTTP, validate input, map errors
       +-- services     business rules, ownership, transactions
       +-- repositories typed sqlc queries + hand-written pgx for functions
       +-- googlebooks  HTTPS client for Google Books search/volume lookup only
-      |                (server-side key, timeout, short in-memory cache)
+      |                (server-side key, 5 s timeout, no cache)
       |
       v
 PostgreSQL 18
@@ -112,22 +125,18 @@ backend/
 │   └── server/main.go                 # Entry point: load config, open pool, build router, start/stop HTTP
 ├── internal/
 │   ├── googlebooks/
-│   │   ├── client.go                  # Search and GetVolume over HTTPS; key, country, timeout; maps Google errors
-│   │   ├── normalize.go               # Volume -> ExternalBook/import params (dates, HTML, ISBN, categories, https covers)
-│   │   └── cache.go                   # Small TTL cache of search pages to save quota
+│   │   ├── client.go                  # Search and GetVolume over HTTPS; key, country, 5 s timeout; base URL is a constructor argument so tests can use httptest; maps Google errors
+│   │   └── normalize.go               # Volume -> ExternalBook/import params (dates, HTML, ISBN-13, categories, https covers)
 │   ├── config/config.go               # Reads env vars, validates them, returns one typed Config value
 │   ├── database/
-│   │   ├── pool.go                    # Creates/closes the pgxpool and exposes ping/stat helpers
-│   │   └── migrate.go                 # Reads schema_migrations so /readyz knows the schema is current
+│   │   └── pool.go                    # Creates/closes the pgxpool and exposes ping/stat helpers
 │   ├── db/                            # sqlc-generated query code; committed, never hand-edited
 │   ├── auth/
-│   │   ├── password.go                # Argon2id hashing, PHC encoding, constant-time verification
+│   │   ├── password.go                # bcrypt (cost 12) hashing and verification
 │   │   └── jwt.go                     # Issues and validates HS256 access tokens and claims
 │   ├── middleware/
 │   │   ├── auth.go                    # Reads cookie/Bearer, validates JWT, injects the user ID
-│   │   ├── cors.go                    # Exact-origin allowlist, credentials, exposed pagination headers
 │   │   ├── logging.go                 # Structured request logs: route, status, duration, user ID
-│   │   ├── ratelimit.go               # Per-IP token bucket; stricter bucket for login/register
 │   │   └── requestid.go               # Generates/propagates X-Request-ID into logs and error bodies
 │   ├── httpx/
 │   │   ├── decode.go                  # Bounded JSON decoding, unknown-field rejection, field validation
@@ -154,7 +163,7 @@ backend/
 │   ├── handlers/
 │   │   ├── auth.go                    # HTTP layer for /api/auth/*
 │   │   ├── users.go                   # HTTP layer for /api/users/me*
-│   │   ├── books.go                   # HTTP layer for /api/books*, /api/books/import, /api/search, /api/external/books
+│   │   ├── books.go                   # HTTP layer for /api/books*, /api/books/import, /api/external/books
 │   │   ├── authors.go                 # HTTP layer for /api/authors*
 │   │   ├── categories.go              # HTTP layer for /api/categories*
 │   │   ├── shelves.go                 # HTTP layer for /api/shelves*
@@ -200,7 +209,7 @@ Rules:
 
 - `POST /api/auth/register` creates a user. The database trigger creates the
   profile and four default shelves in the same transaction.
-- `POST /api/auth/login` verifies the Argon2id hash and issues the JWT.
+- `POST /api/auth/login` verifies the bcrypt hash and issues the JWT.
 - The JWT contains `sub` (user ID), `email`, `iat`, `exp`, `iss`
   (`book-metaverse`). Reject `alg: none` and any algorithm other than HS256.
 - Cookie flags: `HttpOnly; Path=/; SameSite=Lax`; add `Secure` when
@@ -232,9 +241,7 @@ Rules:
 | `NOT_FOUND` | 404 | Resource does not exist or is not owned by the caller |
 | `CONFLICT` | 409 | Duplicate email, review, rating, shelf name, or status shelf |
 | `STALE_VERSION` | 409 | Optimistic progress version mismatch |
-| `RATE_LIMITED` | 429 | Login/register, Google search/import, or general rate limit exceeded |
-| `UPSTREAM_UNAVAILABLE` | 502 | Google Books failed, timed out, or returned an unusable response |
-| `UPSTREAM_RATE_LIMITED` | 503 | Server's Google Books quota exhausted; `Retry-After` set |
+| `UPSTREAM_UNAVAILABLE` | 502 | Google Books failed, timed out, is over its quota, or returned an unusable response |
 | `DATABASE_UNAVAILABLE` | 503 | Pool cannot reach PostgreSQL |
 | `INTERNAL` | 500 | Unexpected failure; log details, never return them |
 
@@ -263,8 +270,8 @@ or admin routes in the MVP.
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
 | `GET` | `/healthz` | none | Liveness probe: confirms the process is running without touching the database |
-| `GET` | `/readyz` | none | Readiness probe: confirms the pool connects and the schema migration version is current |
-| `GET` | `/` | none | Small service-metadata response for smoke checks and load-balancer tests |
+| `GET` | `/readyz` | none | Readiness probe: confirms the pool can reach PostgreSQL |
+| `GET` | `/` | none | Small service-metadata response for smoke checks |
 
 #### Authentication and users
 
@@ -305,7 +312,6 @@ or admin routes in the MVP.
 | `GET` | `/api/external/books` | optional | Google Books search for discovery; powers the main search on Explore, Catalog, and the dashboard. Stores nothing | `q,title,author,category,isbn,sort=relevance\|newest,page,pageSize<=40` | `ExternalBook[]` + pagination headers (`X-Total-Count` is Google's estimate) |
 | `POST` | `/api/books/import` | yes | Turns a Google result into a local book so it can be shelved, rated, reviewed, or tracked. Idempotent | `{googleBooksId}` | `201 Book` (imported) or `200 Book` (already in library) |
 | `GET` | `/api/books` | optional | Library search over books already in PostgreSQL (seed, imported, user-created); the "In the library" tab, filters, and evidence query `q01` | `q,title,authorId,categoryId,sort,page,pageSize` | `Book[]` + pagination headers |
-| `GET` | `/api/search` | optional | Alias of `/api/books` (library search) for the existing frontend URL | alias of `/api/books` | same |
 | `GET` | `/api/books/{bookId}` | optional | Book detail: metadata, authors, categories, summary, and the caller's progress/rating | — | `Book` with `myProgress`/`myRating` when authenticated |
 | `POST` | `/api/books` | yes | Adds a book by hand when Google has no match (`source = user`) | book metadata + `authors: string[]` + `categories: string[]` | `201 Book` |
 | `PATCH` | `/api/books/{bookId}` | yes | Corrects seed or user-created metadata without touching user activity; Google rows return `403` | partial metadata | `Book` |
@@ -377,8 +383,8 @@ is already in the library. The frontend uses it directly; otherwise it calls
 Search and import flow:
 
 ```text
-user types a query
-  -> GET /api/external/books        (Google, cached, nothing stored)
+user submits a search
+  -> GET /api/external/books        (Google, nothing stored)
   -> results with bookId or null
 user clicks "Add to shelf" / "Rate" / "Start reading" on a result
   -> bookId null? POST /api/books/import {googleBooksId} -> Book.id
@@ -472,7 +478,6 @@ Rules:
 | `GET` | `/api/reading-progress` | yes | Lists all reading progress for the caller; powers the dashboard and Progress page | `status?,page,pageSize` | `ReadingProgress[]` |
 | `GET` | `/api/reading-progress/{bookId}` | yes | Returns one book's current page/status for the detail page | — | `ReadingProgress` |
 | `PATCH` | `/api/reading-progress/{bookId}` | yes | Partial update; the server recomputes percent and completion | `{currentPage?,percentComplete?,status?,version?}` | `ReadingProgress` |
-| `PUT` | `/api/reading-progress/{bookId}` | yes | Full replacement of one progress record with the same validation | same, full update | `ReadingProgress` |
 | `DELETE` | `/api/reading-progress/{bookId}` | yes | Removes the caller's progress record for a book | — | `204` |
 | `GET` | `/api/reading-history` | yes | Returns the append-only reading timeline for the caller or one book | `bookId?,limit=20` | `ReadingHistoryEvent[]` |
 
@@ -980,7 +985,7 @@ Tasks:
    ```bash
    docker compose --env-file .env --file docker-compose.yml --project-name book-metaverse --profile tools run --rm sqlc
    ```
-3. Add generated-code drift verification to CI or `scripts/check.sh`.
+3. Add a generated-code drift check (`sqlc diff`) to the manual checks (Section 11.2).
 4. Keep `database/schema/schema.sql` in sync with migration table/column
    changes; it is the only schema file sqlc reads.
 
@@ -1002,11 +1007,10 @@ Seed requirements:
   `('00000000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid` so reruns are
   idempotent.
 - `ON CONFLICT DO NOTHING` on every insert.
-- Demo password hashes. PostgreSQL cannot compute Argon2id in SQL, so
-  `003_demo_activity.sql` uses `pgcrypto` bcrypt for the shared demo password
-  (`Password123!`). The auth service must accept bcrypt for seeded demo accounts
-  and rehash to Argon2id on first login. Accounts created through the API always
-  use Argon2id directly.
+- Demo password hashes. `003_demo_activity.sql` uses `pgcrypto` bcrypt (cost
+  12) for the shared demo password (`Password123!`). The Go auth service uses
+  bcrypt for every account, so seeded and API-created accounts are verified the
+  same way and nothing needs rehashing.
 - Fixed timestamps for report reproducibility.
 - A documented demo login, for example `reader1@example.com / Password123!`.
 - Keep the dataset volume at the course evidence floor: at least 200 books,
@@ -1033,30 +1037,26 @@ import command: Google content enters a database only through
 
 | Variable | Default | Rules |
 | --- | --- | --- |
-| `APP_ENV` | `local` | `local`, `test`, `production` |
+| `APP_ENV` | `local` | free-form label (`local`, `rds`, ...); logged at startup; nothing branches on it |
 | `PORT` | `8080` | 1-65535 |
 | `DATABASE_URL` | — | wins over individual DB values |
-| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_SSLMODE` | existing defaults | password required outside local test |
-| `DB_MAX_OPEN_CONNS` | `10` | 1-50 |
-| `DB_MAX_IDLE_CONNS` | `5` | <= max open |
-| `JWT_SECRET` | — | at least 32 bytes; process exits if missing outside tests |
-| `JWT_TTL` | `60m` | 5m-24h |
-| `COOKIE_SECURE` | `false` local, `true` production | boolean |
-| `ALLOWED_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` | comma-separated exact origins |
-| `GOOGLE_BOOKS_API_KEY` | empty | server-side only; empty uses Google's small anonymous quota and logs a startup warning; required when `APP_ENV=production` |
-| `GOOGLE_BOOKS_BASE_URL` | `https://www.googleapis.com/books/v1` | must be `https` outside tests; tests point it at an `httptest` server |
+| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_SSLMODE` | existing defaults | `DB_PASSWORD` required |
+| `JWT_SECRET` | — | must be set and non-empty; the process exits if it is missing |
+| `COOKIE_SECURE` | `false` | boolean; `true` only when the site is served over HTTPS |
+| `GOOGLE_BOOKS_API_KEY` | empty | server-side only; empty uses Google's small anonymous quota and logs a startup warning |
 | `GOOGLE_BOOKS_COUNTRY` | `US` | ISO 3166-1 alpha-2; sent as `country=` to avoid `403 unknownLocation` on cloud hosts |
-| `GOOGLE_BOOKS_TIMEOUT` | `5s` | 1s-15s; per Google request |
-| `GOOGLE_BOOKS_CACHE_TTL` | `10m` | 0 disables; search pages only |
-| `DB_SECRET_ARN` | empty | optional AWS Secrets Manager JSON secret |
-| `LOG_LEVEL` | `info` | debug/info/warn/error |
+
+Not configurable, hardcoded in code: pool size (10 connections maximum), token
+lifetime (60 minutes), request timeout, log level (`info`), and the Google Books
+base URL and 5-second timeout. `googlebooks.NewClient` takes the base URL as an
+argument so tests can point it at an `httptest` server.
 
 Replace `database/sql` with:
 
 ```go
 poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
-poolConfig.MaxConns = int32(cfg.DBMaxOpen)
-poolConfig.MinConns = int32(cfg.DBMaxIdle)
+poolConfig.MaxConns = 10
+poolConfig.MinConns = 2
 pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 ```
 
@@ -1067,34 +1067,24 @@ per-request database timeout and a 3-second pool acquisition timeout.
 
 ```text
 RequestID
-  -> RealIP
   -> Recoverer
   -> structured slog logger
-  -> CORS
   -> 10-second request timeout
   -> 1 MiB body limit
-  -> rate limiter
   -> route group authentication
   -> handler
 ```
 
-- CORS must echo only allowed origins, allow methods `GET`, `POST`, `PUT`,
-  `PATCH`, `DELETE`, and `OPTIONS`, allow headers `Authorization` and
-  `Content-Type`, allow credentials, and expose `X-Total-Count`, `X-Page`,
-  `X-Page-Size`, `X-Request-ID`, and `Retry-After`. Browsers hide every
-  response header that is not exposed, so the frontend could not otherwise read
-  pagination, the request ID on non-JSON errors, or the retry delay on `429`
-  and `503` (`FRONTEND_PLAN.md` §5.1). Cache preflight responses for 10
-  minutes (`Access-Control-Max-Age: 600`).
-- Local development uses `http://localhost:3000` → `http://localhost:8080`.
-  That pair is same-site, so the `SameSite=Lax` cookie is sent with
-  credentialed `fetch`. `127.0.0.1:3000` → `localhost:8080` is cross-site and
-  drops the cookie even though both origins are in `ALLOWED_ORIGINS`.
-- The rate limiter is an in-memory token bucket keyed by client IP. Use 10/min
-  for login/register, 30/min for `GET /api/external/books` and
-  `POST /api/books/import` (they spend the shared Google quota), and 120/min
-  for general API traffic. Document that a multi-instance deployment needs
-  Redis later.
+- There is no CORS middleware and no rate limiter. The browser calls `/api/...`
+  on the web app's own origin and Next.js forwards the request to this API
+  (`FRONTEND_PLAN.md` decision 16), so the browser never makes a cross-origin
+  request and every response header is readable. Call the API directly (curl,
+  tests) at `http://localhost:8080`.
+- The session cookie is set on the web app's host, because that is the only
+  host the browser sees. The `Set-Cookie` header passes through the Next.js
+  rewrite unchanged.
+- The request ID is sent back in an `X-Request-ID` response header and as
+  `requestId` in error bodies.
 - The logger records request ID, method, route template, status, duration, and
   user ID. Never log passwords, tokens, cookies, or request bodies.
 
@@ -1102,15 +1092,13 @@ RequestID
 
 `internal/auth/password.go`:
 
-- Argon2id parameters: memory 64 MiB, iterations 3, parallelism 2, salt 16
-  bytes, key 32 bytes.
-- PHC-encoded storage:
-  `$argon2id$v=19$m=65536,t=3,p=2$<salt>$<hash>`.
-- Constant-time comparison after parsing.
-- Password length 8-128 bytes; reject control characters.
-- Accept a bcrypt hash (`$2a$`/`$2b$`) only for seeded demo accounts, then
-  rehash to Argon2id on the first successful login. Accounts created through
-  the API always start as Argon2id.
+- Hash with `golang.org/x/crypto/bcrypt` at cost 12 and verify with
+  `bcrypt.CompareHashAndPassword`, which compares in constant time.
+- Seeded demo accounts already use bcrypt (`pgcrypto`, cost 12, `$2a$` prefix),
+  so the same verification works for them and for accounts created through the
+  API. There is no rehash step.
+- Password length 8-72 bytes (bcrypt ignores everything after byte 72); reject
+  control characters.
 
 `internal/auth/jwt.go`:
 
@@ -1131,8 +1119,8 @@ Registration flow:
 Login flow:
 
 1. Look up by exact normalized email.
-2. Always run a dummy Argon2 verification when the user is missing to reduce
-   timing differences.
+2. When the user is missing, compare against a fixed dummy bcrypt hash anyway
+   to reduce timing differences.
 3. Return `UNAUTHENTICATED` with a generic message on failure.
 4. Issue token and set cookie.
 
@@ -1192,8 +1180,8 @@ Google Books search (`GET /api/external/books`):
     `Fiction / Fantasy / Epic` keep the last segment, trimmed and
     de-duplicated case-insensitively.
   - `description`: strip HTML tags, decode entities, collapse whitespace.
-  - `isbn13` from `industryIdentifiers` type `ISBN_13`; else convert
-    `ISBN_10` to ISBN-13 (`978` prefix + new check digit); else null.
+  - `isbn13` from `industryIdentifiers` type `ISBN_13` only; null when Google
+    lists none (no ISBN-10 conversion).
   - `pageCount <= 0` becomes null.
   - `coverUrl`: `imageLinks.thumbnail` (or `smallThumbnail`), with `http://`
     rewritten to `https://`.
@@ -1201,9 +1189,6 @@ Google Books search (`GET /api/external/books`):
   - Ignore Google's `averageRating`, `ratingsCount`, prices, and access info.
 - Run `ListBooksByExternalIDs` once per page with the page's volume IDs and
   ISBN-13 values and fill `bookId` on matches.
-- Cache the normalized page (before the `bookId` lookup) by the normalized
-  query string for `GOOGLE_BOOKS_CACHE_TTL`. The `bookId` lookup always runs
-  so a fresh import shows up immediately.
 - Map Google errors as listed in `docs/api/errors.md`. Never forward Google's
   body, and never log the key or the full request URL with the key.
 
@@ -1290,9 +1275,10 @@ Never accept user SQL.
 `/readyz`:
 
 1. Ping the pool with a 3-second timeout.
-2. Query the migration version table (`schema_migrations`).
-3. Return `200` only when the pool connects and the version is at least the
-   latest expected migration (currently `6`); otherwise `503` with a reason.
+2. Return `200` if it succeeds; otherwise `503 DATABASE_UNAVAILABLE`.
+
+The check does not read `schema_migrations`; `./scripts/dev.sh` runs the
+migrations before it waits for `/readyz`.
 
 `/readyz` does not call Google. A Google outage disables discovery only; the
 rest of the API stays ready.
@@ -1337,28 +1323,27 @@ guard.
 - Use parameterized SQL only. `sqlc` enforces this for generated queries; the
   hand-written function calls use `$1`-style arguments.
 - Set `Cache-Control: no-store` on auth and personal data responses.
-- CORS: exact origins, credentials enabled, no `*` with credentials.
-- Rate-limit authentication endpoints; log failures without logging credentials.
-- Cookie `Secure` in production; `SameSite=Lax`; no token in URLs.
+- Log failed logins without logging credentials.
+- Cookie `Secure` when served over HTTPS (`COOKIE_SECURE`); `SameSite=Lax`; no token in URLs.
 - Graceful shutdown: drain HTTP, close the pool, log the reason.
 - Request IDs propagate to logs and error responses.
-- Limit database privileges in production to the application schema (no
-  superuser); RDS credentials come from Secrets Manager.
+- Application secrets (database password, `JWT_SECRET`, Google key) are read
+  from the gitignored `.env` file; never commit it. The database password was
+  generated by Terraform and is also stored in the team's Secrets Manager
+  secret. The API connects as the RDS master user, which is acceptable for this
+  course project.
 - Google Books:
-  - The API key lives only on the server (env var locally, Secrets Manager in
-    AWS). The browser never calls Google directly.
+  - The API key lives only on the server (`.env`). The browser never calls
+    Google directly.
   - Restrict the key in Google Cloud Console to the Books API.
   - Treat every Google field as untrusted input: strip HTML from
     descriptions before storing or returning them, accept only `https` cover
     URLs, and let React escape all text. Never render Google HTML.
   - Import only by volume ID, re-fetched from Google on the server.
-  - Show Google attribution ("Powered by Google") and the `infoLink` on every
-    search result and on the detail page of `source = google` books. Pages
-    that list stored books show one page-level "Book information from Google
-    Books" notice: conditionally where the rows carry `source` (library search,
-    shelf books, author/category books), and always where they do not
-    (progress, history, reports, my reviews/ratings, which return small cards
-    such as `BookSummary`). See `FRONTEND_PLAN.md` decision 10.
+  - Show the `infoLink` and a "Powered by Google" mark on every Google search
+    result and on the detail page of `source = google` books, and put one
+    "Book information from Google Books" line in the footer of every page. See
+    `FRONTEND_PLAN.md` decision 10.
   - Store only books a user acted on, and never commit Google data to the
     repository. Google's API terms restrict permanent copies of API content;
     whether storing acted-on books is acceptable for this course project is an
@@ -1372,20 +1357,19 @@ guard.
 
 | Level | Location | Coverage |
 | --- | --- | --- |
-| Unit | `backend/internal/auth`, `backend/internal/httpx` | Argon2 hash/verify, JWT issue/parse/expiry, validation helpers, error mapping |
-| Handler | `backend/internal/handlers/*_test.go` | `httptest` status codes, JSON shapes, auth requirements, validation errors |
-| Repository | `backend/internal/repositories/*_test.go` | Row mapping, pagination, search filters |
-| Integration | `backend/internal/integration` | Real PostgreSQL via Testcontainers, migrations applied, full endpoint flows |
-| Concurrency | `backend/internal/integration/concurrency_test.go` | The scenarios in Section 7.2, including concurrent import |
-| Google client | `backend/internal/googlebooks/*_test.go` | Normalization table tests (partial dates, HTML, ISBN-10 conversion, BISAC paths, missing authors, `http` covers, `pageCount` 0); error mapping against an `httptest` fake Google. Tests never call the real Google API |
+| Unit | `backend/internal/auth`, `backend/internal/httpx` | bcrypt hash/verify (including a seeded `pgcrypto` hash), JWT issue/parse/expiry, validation helpers, error mapping |
+| Google | `backend/internal/googlebooks/*_test.go` | Normalization table tests (partial dates, HTML, BISAC paths, missing authors, `http` covers, `pageCount` 0, no ISBN-13); error mapping against an `httptest` fake Google. Tests never call the real Google API |
+| Handler | `backend/internal/handlers/*_test.go` | `httptest` smoke tests for status codes, JSON shapes, auth requirements, and validation errors on the main endpoints |
+| Integration | `backend/internal/integration` | Optional: endpoint flows against the Compose database, including the API-level scenarios of Section 7.2 (duplicate review `201`/`409`, concurrent import, stale progress version). The SQL-level multi-session evidence is in `database/concurrency/` |
 
 Setup:
 
-- Use `testcontainers-go` with `postgres:18-alpine`.
-- Apply migrations with `golang-migrate` or by executing the migration files.
-- Seed deterministic fixtures per test; truncate between tests.
-- Skip integration tests with a build tag (`//go:build integration`) when Docker
-  is unavailable, but require them in CI.
+- Integration tests and the SQL suites use the Compose PostgreSQL started by
+  `./scripts/dev.sh local`; they do not start their own containers.
+- Seeds are deterministic. Tests that write data create their own users and
+  books and remove them afterwards.
+- Put integration tests behind a build tag (`//go:build integration`) so
+  `go test ./...` stays fast and needs no database.
 
 ### 9.2 Database validation cases (20+)
 
@@ -1422,12 +1406,14 @@ Setup:
     volume with the same ISBN-13 raises `books_isbn13_unique`.
 29. `UpdateBook` does not change a `google` book.
 
-### 9.3 Frontend end-to-end
+### 9.3 Frontend verification
 
-Playwright flows:
+A manual checklist, run against the Compose stack and recorded with screenshots
+in `docs/evidence/ui-checklist.md`. Automated browser tests are optional
+(`FRONTEND_PLAN.md` §6). Flows:
 
 1. Register, log in, and load the dashboard.
-2. Search Google Books (against a stubbed API response in CI), import a
+2. Search Google Books, import a
    result, and shelve it; search the library by title, author, and category.
 3. Open a book detail page and see authors/categories/summary.
 4. Add a book to a shelf and move it between status shelves.
@@ -1451,13 +1437,14 @@ where they differ, `FRONTEND_PLAN.md` wins.
 
 | File / area | Change |
 | --- | --- |
-| `frontend/src/lib/api-client.ts` | Add `credentials: "include"`, parse the error envelope, surface `requestId` and `Retry-After`, return `undefined` for `204`, handle `401` by invalidating auth state (except login, register, and `me`), expose pagination headers |
+| `frontend/next.config.ts` | Forward `/api/*` to `API_PROXY_TARGET` (done), so the browser stays on one origin |
+| `frontend/src/lib/api-client.ts` | Relative `/api/...` URLs (done); parse the error envelope and surface `requestId`; return `undefined` for `204`; expose pagination headers |
 | `frontend/src/providers/QueryProvider.tsx` | New TanStack Query provider with sensible retry/stale defaults |
 | `frontend/src/app/layout.tsx` | Wrap the application in the query provider |
 | `frontend/src/services/auth-service.ts` | `register`, `login`, `logout`, `me` |
 | `frontend/src/services/user-service.ts` | Profile read/update, password change |
 | `frontend/src/services/book-service.ts` | Add `searchGoogle` (`GET /api/external/books`), `importGoogleBook`, and an `ensureLocalBook(result)` helper that returns `result.bookId` or imports first; keep `search` for library search; detail, create/update, rating summary |
-| `frontend/src/components/GoogleAttribution.tsx` | New: "Powered by Google" mark and link, used on search results, Google-sourced book detail, and as a page-level notice |
+| `frontend/src/components/GoogleAttribution.tsx` | New: "Powered by Google" mark and `infoLink`, used on search results and Google-sourced book detail; the app footer carries one "Book information from Google Books" line |
 | `frontend/next.config.*` | Allow `books.google.com` and `*.googleusercontent.com` covers if `next/image` is used |
 | `frontend/src/services/reading-service.ts` | Progress CRUD, history, shelf add/move/remove |
 | `frontend/src/services/shelf-service.ts` | Shelf CRUD |
@@ -1469,7 +1456,7 @@ where they differ, `FRONTEND_PLAN.md` wins.
 | `frontend/src/app/login/page.tsx` | React Hook Form + Zod; call the auth service; show API errors |
 | `frontend/src/app/register/page.tsx` | New registration page |
 | `frontend/src/app/(workspace)/dashboard/page.tsx` | Real stats, current reading, recent activity, shelves |
-| `frontend/src/app/(workspace)/catalog/page.tsx` | Two tabs: "Google Books" (default, `searchGoogle`) and "In the library" (`search`, with author/category filters); pagination, loading/empty/error states; on `UPSTREAM_*` errors show a message and switch to the library tab |
+| `frontend/src/app/(workspace)/catalog/page.tsx` | Two tabs: "Google Books" (default, `searchGoogle`) and "In the library" (`search`, with author/category filters); pagination, loading/empty/error states; on `UPSTREAM_UNAVAILABLE` show a message and offer the library tab |
 | `frontend/src/app/books/[bookId]/page.tsx` | New book detail page with shelf/progress/review/rating actions; Google attribution and `infoLink` when `source = google`; date shown per `publishedDatePrecision` |
 | `frontend/src/app/(workspace)/authors/page.tsx` | Author/category listings and detail navigation |
 | `frontend/src/app/(workspace)/shelves/page.tsx` | Shelf list, create/rename/delete, add/move/remove books |
@@ -1483,8 +1470,8 @@ where they differ, `FRONTEND_PLAN.md` wins.
 
 Use React Hook Form + Zod for register, login, review, rating, shelf, progress,
 and profile forms. Use TanStack Query mutations with invalidation for shelves,
-progress, reviews, ratings, and reports. Add optimistic updates for rating and
-shelf actions.
+progress, reviews, ratings, and reports. Invalidate the affected queries after
+each mutation; there are no optimistic updates.
 
 Never call `googleapis.com` from the browser and never put the key in a
 `NEXT_PUBLIC_*` variable.
@@ -1499,47 +1486,36 @@ and keep the `ReadingReport` field names in Section 4.4 unchanged.
 
 ### 11.1 Compose
 
-Add to the `api` service in both Compose files:
+Both Compose files already pass `APP_ENV`, `JWT_SECRET`, `COOKIE_SECURE` (default `false`),
+`GOOGLE_BOOKS_API_KEY`, and `GOOGLE_BOOKS_COUNTRY` to the `api` service. That is
+all of the API's configuration (Section 6.1). Never commit `.env`.
 
-```dotenv
-APP_ENV=local
-ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
-JWT_TTL=60m
-COOKIE_SECURE=false
-DB_MAX_OPEN_CONNS=10
-DB_MAX_IDLE_CONNS=5
-```
+Add a `web` service after `frontend/Dockerfile` exists, with a health check.
+Build it with `API_PROXY_TARGET=http://api:8080` as a build argument, because
+Next.js reads the rewrite target when `next build` runs. On EC2 the security
+group opens only port 80 (`web`). The API's port 8080 stays published on the
+instance, because `./scripts/dev.sh` checks `http://127.0.0.1:8080/readyz`, but
+it is not reachable from outside.
 
-`GOOGLE_BOOKS_API_KEY` and `GOOGLE_BOOKS_COUNTRY` are already passed to the
-`api` service in both Compose files (empty key and `US` by default).
+### 11.2 Checks
 
-For the RDS file use `APP_ENV=production` and `COOKIE_SECURE=true` when the
-frontend is served over HTTPS. Never commit a production `JWT_SECRET`.
+There is no hosted CI. Run these by hand before a demo or a push:
 
-Add a `web` service after `frontend/Dockerfile` exists, with a health check and
-`NEXT_PUBLIC_API_URL` pointing at the API.
+1. **Backend (in WSL):** `go vet ./...`, `go test ./...`, and `sqlc diff`
+   through the Compose `sqlc` service.
+2. **Database:** `./scripts/dev.sh local` (migrations and seeds), then the SQL
+   suites in `database/tests/`.
+3. **Frontend:** `npm run lint`, `npm run typecheck`, `npm run build`.
+4. **Infra:** `terraform fmt -check` and `terraform validate`.
 
-### 11.2 CI
-
-`.github/workflows/ci.yml`:
-
-1. **Backend static:** `go vet ./...`, `go test ./...`, `sqlc diff` or
-   regenerate-and-compare.
-2. **Database integration:** start `postgres:18`, run `migrate up`, apply seeds,
-   run `go test -tags=integration ./...`, run the validation SQL suite.
-3. **Frontend:** `npm ci`, `npm run lint`, `npm run typecheck`,
-   `npm run build`.
-4. **Infra:** `terraform fmt -check`, `terraform validate`.
+A `scripts/check.sh` that runs these is optional.
 
 ### 11.3 AWS
 
-- RDS remains private; only the API security group connects.
-- Load DB credentials from Secrets Manager via `DB_SECRET_ARN` when configured;
-  otherwise use injected environment variables for the course deployment.
-- Add the API container to ECS Fargate (or the existing EC2 profile), behind an
-  ALB, with CloudWatch JSON logs.
-- Store the JWT secret in Secrets Manager, not in the task definition.
-- Verify a backup/restore into a separate database before the final demo.
+Deployment is described in [`AWS_PLAN.md`](AWS_PLAN.md): RDS stays private, one
+EC2 instance runs the Compose stack (`web` and `api`) and is reached over HTTP
+on port 80, and the application's secrets live in the gitignored `.env`. Verify a
+backup/restore into a separate database before the final demo.
 
 ---
 
@@ -1594,6 +1570,20 @@ them in step with every migration that changes a table or column; update
 Known limitation recorded in `ER_diagram.md` section 8: authors are identified
 by name (case-insensitive unique), so two people with the same name share one
 row.
+
+### 12.1 Course deliverables and where they come from
+
+| Marked item | Source in this repository |
+| --- | --- |
+| SQL scripts for creation, data population, and CRUD | `database/migrations/` (schema, constraints, triggers, functions), `database/seeds/` (population), `database/queries/` (create, read, update, delete) |
+| Complex queries with annotations | Comments in `database/queries/*.sql` and `docs/database/query-catalog.md` (purpose, SQL, expected output) |
+| Indexing scripts that show the improvement | `database/performance/` (before/after `EXPLAIN (ANALYZE, BUFFERS)`) and `docs/evidence/performance.md` |
+| Transaction code with isolation levels and results | `docs/evidence/transactions.md`; `database/concurrency/` multi-session scripts; `docs/evidence/concurrency.md` (the API runs at READ COMMITTED; include at least one scenario under REPEATABLE READ or SERIALIZABLE to explain the difference) |
+| Test cases and results | `database/tests/validation_cases.sql` and `docs/evidence/validation.md` |
+| README with setup, dependencies, and testing | `README.md` and `DEVELOPMENT.md` |
+| Word report, PowerPoint, live demo | Written outside the code; screenshots and outputs come from `docs/evidence/` and `docs/evidence/ui-checklist.md` |
+
+The marking criteria say "MySQL"; this project uses PostgreSQL 18 (Section 16).
 
 Update stale statements:
 
@@ -1683,18 +1673,17 @@ complete dataset; `sqlc generate` succeeds.
 - [ ] Add config loading and validation, including the `GOOGLE_BOOKS_*`
       settings (Section 6.1). The Google client itself is Phase 4.
 - [ ] Add `httpx` response/error helpers and domain errors.
-- [ ] Add request ID, logging, recovery, CORS, timeout, body limit, and rate
-      limit middleware.
-- [ ] Add `/healthz`, `/readyz`, and `/` with migration-version readiness.
+- [ ] Add request ID, logging, recovery, timeout, and body limit middleware.
+- [ ] Add `/healthz`, `/readyz` (database ping), and `/`.
 - [ ] Add route skeleton with 501 or 404 for unimplemented endpoints during
       development.
 
-**Exit:** The API starts with a valid pool, readiness reports the schema
-version, and CORS works from `http://localhost:3000`.
+**Exit:** The API starts with a valid pool, and `/readyz` returns 200 when the
+database is reachable and 503 when it is not.
 
 ### Phase 3 — Authentication and users
 
-- [ ] Argon2id hash/verify with PHC encoding.
+- [ ] bcrypt hash/verify (cost 12), including the seeded demo accounts.
 - [ ] JWT issue/parse with method and expiry validation.
 - [ ] Register, login, logout, and me endpoints with cookie + Bearer support.
 - [ ] Profile read/update and password change.
@@ -1712,17 +1701,18 @@ working token; protected routes reject anonymous callers.
 - [ ] Book create (`source = user`) and update (`403` for Google rows) with
       author/category upserts.
 - [ ] Authors and categories endpoints.
-- [ ] `internal/googlebooks` client, normalizer, and cache with table tests
-      against an `httptest` fake.
+- [ ] `internal/googlebooks` client and normalizer with table tests against an
+      `httptest` fake.
 - [ ] `GET /api/external/books` with `bookId` marking and error mapping.
-- [ ] `POST /api/books/import` with dedupe by volume ID and ISBN-13, and the
-      concurrent-import test.
-- [ ] Search integration tests for title, author, category, and keyword.
+- [ ] `POST /api/books/import` with dedupe by volume ID and ISBN-13, and a
+      concurrent-import check (two parallel requests return the same `id`).
+- [ ] Search checks for title, author, category, and keyword (SQL evidence in
+      `docs/database/query-catalog.md`; integration tests optional).
 
 **Exit:** `q01` and `q02` return validated results; a book with multiple
 authors/categories renders completely; a Google result can be imported once
 and then shelved through the existing shelf endpoint; Google failures return
-`UPSTREAM_*` while library search keeps working.
+`UPSTREAM_UNAVAILABLE` while library search keeps working.
 
 ### Phase 5 — Shelves, progress, and history
 
@@ -1731,7 +1721,7 @@ and then shelved through the existing shelf endpoint; Google failures return
 - [ ] `fn_move_book_to_shelf` and `fn_update_reading_progress`.
 - [ ] Progress list/get/update/delete and history list.
 - [ ] Optimistic version handling and retry helper.
-- [ ] Transaction commit and rollback tests.
+- [ ] Transaction commit and rollback evidence (`docs/evidence/transactions.md`).
 
 **Exit:** Moving a book always updates shelf state, progress, and history
 consistently; invalid page counts are rejected.
@@ -1743,7 +1733,8 @@ consistently; invalid page counts are rejected.
 - [ ] Combined `PUT /api/books/{bookId}/review` transaction.
 - [ ] Summary trigger verification for insert/update/delete.
 - [ ] Duplicate and invalid-input conflict mapping.
-- [ ] Review/rating integration and concurrency tests.
+- [ ] Review/rating concurrency evidence (multi-session SQL in
+      `database/concurrency/`; an API-level integration test is optional).
 
 **Exit:** Duplicate reviews and invalid ratings are rejected; summary counts stay
 consistent after concurrent writes.
@@ -1771,7 +1762,7 @@ each frontend phase to the backend phase it needs.
 - [ ] Google Books search tab, import-on-action, and Google attribution.
 - [ ] Add forms and loading/empty/error states.
 - [ ] Remove `mock-data.ts` usage.
-- [ ] Playwright happy-path flows.
+- [ ] Manual UI checklist (`docs/evidence/ui-checklist.md`).
 
 **Exit:** No workspace page depends on mock data or a fake session.
 
@@ -1781,7 +1772,7 @@ each frontend phase to the backend phase it needs.
 - [ ] Three transaction demonstrations with commit and rollback.
 - [ ] Three concurrency demonstrations with multi-session output.
 - [ ] Five index optimizations with before/after plans and timings.
-- [ ] `go test ./...`, integration tests, frontend lint/typecheck/build,
+- [ ] `go test ./...`, the SQL test suites, frontend lint/typecheck/build,
       `terraform validate`.
 - [ ] Evidence files linked from `docs/README.md`.
 
@@ -1792,7 +1783,7 @@ documented with actual output.
 
 - [ ] Apply migrations and seeds to RDS.
 - [ ] Deploy the API and frontend.
-- [ ] Verify Secrets Manager access, private RDS connectivity, and logs.
+- [ ] Verify private RDS connectivity and container logs.
 - [ ] Run the complete flow against RDS.
 - [ ] Rehearse the final demonstration and freeze features.
 
@@ -1809,7 +1800,7 @@ PostgreSQL, and the local and deployed schemas match.
 | Search by title/author/category/keyword | Discovery: `GET /api/external/books` (Google Books). Library: `q01`, `GET /api/books`, FTS + `pg_trgm` + GIN |
 | Book metadata from a real source | `POST /api/books/import`, `books.source`, `ImportGoogleBook` with dedupe on `google_books_id`/`isbn13` |
 | Book metadata | `books`, `authors`, `categories`, junction tables, detail endpoint |
-| Accounts and profiles | `/api/auth/*`, `/api/users/me`, Argon2id + JWT |
+| Accounts and profiles | `/api/auth/*`, `/api/users/me`, bcrypt + JWT |
 | Reading shelves | `/api/shelves`, `fn_move_book_to_shelf`, default shelves |
 | Reviews and ratings | `/api/books/{id}/reviews`, `/api/books/{id}/ratings`, ownership checks |
 | Average ratings and summaries | `book_rating_summaries` + refresh triggers |
@@ -1846,7 +1837,7 @@ The project is complete when:
 - [ ] Twenty or more validation cases pass reproducibly.
 - [ ] Three transaction and three concurrency demonstrations are documented.
 - [ ] The frontend uses the API for every workspace page.
-- [ ] `go test ./...`, integration tests, lint, typecheck, and build pass.
+- [ ] `go test ./...`, the SQL test suites, lint, typecheck, and build pass.
 - [ ] The deployed application uses RDS for every core operation.
 - [ ] `docs/api`, `docs/database`, `docs/evidence`, and `docs/runbooks` are
       populated and linked from the README.
@@ -1857,18 +1848,17 @@ The project is complete when:
 
 | Risk / decision | Impact | Mitigation |
 | --- | --- | --- |
-| MySQL wording remains in older docs | Confusing deliverables and grading | Treat PostgreSQL 18 as final; update the Milestone Plan and presentation |
+| MySQL wording remains in older docs and in the course marking criteria ("populated MySQL instance") | Confusing deliverables and grading | Treat PostgreSQL 18 as final; ask the instructor to confirm PostgreSQL is accepted; update the Milestone Plan and presentation |
 | `sqlc` cannot parse PL/pgSQL functions | Generation failure | Keep functions in separate DDL files; verify on the first generation pass; fall back to hand-written pgx wrappers |
 | Adding author uniqueness fails on existing duplicates | Migration failure | Include the dedupe/remap step in `000003` and test on a copy first |
 | Default-shelf trigger conflicts with old smoke seed | Seed failure | Change the smoke shelf to `custom` and use `NOT EXISTS` guards |
 | Seed volume takes too long | Schedule slip | Generate deterministic rows with `generate_series`; keep one SQL file per concern |
-| Cookie auth breaks across ports/domains | Frontend cannot authenticate | Configure exact `ALLOWED_ORIGINS`, `credentials: include`, and `SameSite=Lax`; use Bearer in tests |
-| Testcontainers unavailable on a teammate machine | Integration tests skipped locally | Run them in CI and document the Docker requirement |
+| Cookie auth breaks across ports/domains | Frontend cannot authenticate | The Next.js proxy keeps browser requests same-origin; open the app at one hostname (`localhost:3000`); `SameSite=Lax`; use Bearer in tests |
 | Concurrent summary updates look flaky | Weak evidence | Record isolation level, seed state, session order, and final counts; use deterministic fixtures |
 | No admin role | Any authenticated user can add catalog records | Document the MVP limitation; add `users.role` in a post-MVP migration if required |
 | Authors are identified by name (`authors_name_ci_unique_idx`) | Two different people with the same name share one author row | Accepted for the MVP: Google returns names without IDs and `UpsertAuthor` depends on the unique name. Documented in `ER_diagram.md` section 8 |
-| Google Books unavailable or slow during the demo | Discovery search and import fail | 5 s timeout and `UPSTREAM_*` errors; the UI falls back to library search; reports and evidence use seed data only; import the demo books before the presentation |
-| Google quota exhausted (about 1,000 requests/day by default; anonymous is lower) | Search returns `503` | Use an API key, 10-minute search cache, 30/min per-IP limit; tests use a fake server, never the real API |
+| Google Books unavailable or slow during the demo | Discovery search and import fail | 5 s timeout and `UPSTREAM_UNAVAILABLE`; the UI falls back to library search; reports and evidence use seed data only; import the demo books before the presentation |
+| Google quota exhausted (about 1,000 requests/day by default; anonymous is lower) | Search returns `502 UPSTREAM_UNAVAILABLE` | Use an API key; the UI falls back to library search; tests use a fake server, never the real API |
 | Google query operators misbehave (`intitle:`/`inauthor:`/`isbn:` returned 0 results in October 2026 until a reported fix on 2026-11-02) | Filtered Google search returns nothing | Rehearse the demo queries; free-text `q` and library search still work |
 | Google API terms restrict permanent copies of content | Storing imported books may not comply | Store only books users act on, attribute them, never commit Google data; confirm with the instructor (open decision 4) |
 | Imported books have no seed activity | Reports look empty for real books | Expected; reports demonstrate SQL on the seed dataset, and real books gain activity as users use them |
@@ -1877,8 +1867,9 @@ The project is complete when:
 
 1. Whether catalog writes should require a future `admin` role or remain open
    to any authenticated user for the course demo.
-2. Whether the deployed frontend and API share a domain (simplifies cookies) or
-   are cross-site (requires a CSRF strategy).
+2. **Decided 2026-11-12:** the browser only talks to the web app, which
+   forwards `/api/*` to the API, so requests are same-origin and there is no
+   CORS or cross-site cookie question.
 3. Whether the combined `PUT /api/books/{bookId}/review` endpoint should be the
    only review form path or coexist with separate review and rating endpoints.
    This plan keeps both.
@@ -1890,3 +1881,7 @@ The project is complete when:
    library search for those books.
 5. Whether to keep the library search tab visible to users or use
    `GET /api/books` only for evidence and filters. This plan keeps the tab.
+6. Whether the instructor accepts PostgreSQL 18, because the marking criteria
+   describe a "populated MySQL instance". The schema, triggers, and queries
+   are PostgreSQL-specific (PL/pgSQL, `tsvector`, `pg_trgm`), so a switch would
+   be a rewrite.

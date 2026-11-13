@@ -22,23 +22,39 @@ The system follows a three-tier architecture:
 
 ```mermaid
 flowchart LR
-    Browser[Browser] --> Web[Next.js Frontend]
-    Web --> API[Go REST API]
-    API --> DB[(PostgreSQL<br/>Amazon RDS)]
-    API --> S3[(Amazon S3<br/>Post-MVP)]
-    API -->|search and import| Books[Google Books API]
-    API --> Logs[CloudWatch]
+    Browser[Browser]
+
+    subgraph Presentation [Presentation tier]
+        Web["Next.js 15<br/>React · TypeScript · Tailwind"]
+    end
+
+    subgraph Application [Application tier]
+        API["Go REST API<br/>chi · pgx · sqlc"]
+    end
+
+    subgraph Data [Data tier]
+        DB[(PostgreSQL 18)]
+    end
+
+    Google["Google Books API<br/>(external)"]
+
+    Browser --> Web
+    Web -->|"HTTP/JSON<br/>OpenAPI contract"| API
+    API -->|"explicit SQL"| DB
+    API -.->|"server-side search<br/>and import only"| Google
 ```
 
 - **Presentation tier:** The Next.js frontend renders the interface and calls
   the backend over HTTP/REST.
 - **Application tier:** The Go API validates requests, applies business rules,
-  manages transaction boundaries, and executes explicit SQL.
+  manages transaction boundaries, and executes explicit SQL. It also calls
+  Google Books on the server for discovery and import.
 - **Data tier:** PostgreSQL stores users, catalog data, shelves, reading
   activity, ratings, reviews, and derived summaries.
 
-The frontend never connects directly to PostgreSQL and never receives database
-credentials. All database access passes through validated API endpoints.
+The browser never connects directly to PostgreSQL or Google and never receives
+database credentials or the Google API key. Every data operation goes through a
+validated API endpoint, and PostgreSQL remains the source of truth.
 
 The deployed database uses PostgreSQL 18 on Amazon RDS, and the Terraform
 scaffold defaults to the same engine and version.
@@ -56,7 +72,7 @@ scaffold defaults to the same engine and version.
 | PostgreSQL access | `pgx` | Connection pooling and database access |
 | SQL generation | `sqlc` | Type-safe Go code generated from explicit SQL |
 | Migrations | `golang-migrate` | Versioned schema changes |
-| Authentication | JWT and Argon2id | Access control and password hashing |
+| Authentication | JWT and bcrypt | Access control and password hashing |
 | Database | PostgreSQL 18 | Primary relational data store |
 | Cloud database | Amazon RDS for PostgreSQL 18 | Managed production database |
 | Book discovery | Google Books API (server-side) | Live search; results imported on first use |
@@ -64,9 +80,8 @@ scaffold defaults to the same engine and version.
 | Optional search | `pgvector` | Semantic similarity search, if added later |
 | Object storage | Amazon S3 (post-MVP) | Self-hosted covers and future uploads |
 | Local development | Docker Compose | Reproducible application and database environment |
-| Production containers | Amazon ECR and ECS Fargate | Image registry and API deployment |
-| Monitoring | Amazon CloudWatch | Logs, metrics, and alerts |
-| Testing | Go tests, Testcontainers, and Playwright | Backend, database, and browser tests |
+| Deployment | One Amazon EC2 instance running Docker Compose | Runs the web and API containers against private RDS |
+| Testing | Go tests, SQL test scripts, Vitest, and a manual UI checklist | Backend, database, and UI checks |
 
 ## Repository Layout
 
@@ -80,6 +95,7 @@ Team_Project/
 ├── scripts/           # dev.sh, Go install for WSL, OpenAPI validation
 ├── BACKEND_PLAN.md    # backend implementation plan
 ├── FRONTEND_PLAN.md   # frontend implementation and integration plan
+├── AWS_PLAN.md        # AWS plan: RDS (done), EC2 deployment, S3 post-MVP
 ├── DEVELOPMENT.md     # how to run the stack locally or against RDS
 ├── ER_diagram.png     # ER diagram (guide: ER_diagram.md)
 └── README.md
@@ -173,8 +189,10 @@ HTTP handlers -> Services -> Repositories -> PostgreSQL
 - **Database infrastructure** manages connection pools, migrations, and query
   configuration.
 
-Middleware handles authentication, authorization, logging, request IDs, and
-rate limiting. The frontend and backend should share an OpenAPI contract.
+Middleware handles authentication, logging, and request IDs. The browser
+reaches the API through the Next.js app, which forwards `/api/*` requests, so
+there is no CORS configuration. The frontend and backend share an OpenAPI
+contract.
 
 ## Local Development
 
@@ -221,38 +239,24 @@ Both modes apply migrations and seed data before starting the API. They do not
 report success unless `/readyz` confirms an actual database connection. The
 frontend `web` container will be added after its Dockerfile is implemented.
 
-Redis may be added later for caching, sessions, rate limiting, or real-time
-features, but it is not required for the database MVP.
-
 ## AWS Deployment
 
-The target production architecture is:
+The deployment target is small on purpose (see [`AWS_PLAN.md`](AWS_PLAN.md)):
 
 ```text
-Internet
-   |
-Route 53
-   |
-CloudFront
-   |
-Next.js on ECS Fargate or Vercel
-   |
-Application Load Balancer
-   |
-Go API on ECS Fargate
-   |
-Private VPC subnet
-   |
-Amazon RDS for PostgreSQL
+Browser --HTTP :80--> EC2 instance (Docker Compose: web + api) --> RDS PostgreSQL 18 (private)
 ```
 
-After the MVP, Amazon S3 can store self-hosted book covers, avatars, and
-uploaded assets. AWS Secrets Manager supplies database credentials and API keys
-at runtime. CloudWatch collects application logs and metrics.
-
-The RDS database must not be publicly accessible. Only the Go API security
-group should be permitted to connect to it, and database credentials must never
-be exposed to the frontend.
+- RDS is already defined in Terraform (`infra/`) and is not publicly accessible.
+  Only the instance's security group is allowed to connect to it.
+- One EC2 instance runs the Next.js (`web`) and Go (`api`) containers. Only
+  `web` is exposed; it forwards `/api/*` to the API over the Compose network.
+- Application secrets (database password, `JWT_SECRET`, Google key) live in a
+  gitignored `.env` file. The application does not call Secrets Manager; the
+  secret the team's Terraform creates is only where the database password is
+  looked up. There is no load balancer or CloudWatch setup.
+- After the MVP, Amazon S3 can store user avatars and covers for hand-added
+  books.
 
 ## Implementation Roadmap
 
@@ -265,7 +269,8 @@ be exposed to the frontend.
 6. Add ratings, reviews, triggers, and rating-summary maintenance.
 7. Add reports, indexes, and before-and-after performance comparisons.
 8. Build the Next.js interface against the API contract.
-9. Add concurrency, constraint, transaction, and end-to-end tests.
+9. Add concurrency, constraint, and transaction evidence, and a manual UI
+   checklist.
 10. Deploy the containers and PostgreSQL database to AWS.
 
 After the database MVP is complete, add optional S3-backed asset uploads and
@@ -275,7 +280,7 @@ storage.
 
 - [x] Three-tier architecture and technology stack documented.
 - [x] Initial `frontend/`, `backend/`, `infra/`, and `docs/` directories created.
-- [x] Terraform scaffold for the RDS data tier and secret storage started.
+- [x] Terraform scaffold for the RDS data tier.
 - [x] Terraform database settings aligned with PostgreSQL 18.
 - [x] PostgreSQL Docker Compose environment and `.env.example`.
 - [x] API service in Compose (minimal Go server with `/healthz` and `/readyz`).
@@ -294,6 +299,7 @@ In this repository:
 
 - [Backend implementation plan](BACKEND_PLAN.md)
 - [Frontend implementation plan](FRONTEND_PLAN.md)
+- [AWS plan](AWS_PLAN.md)
 - [Development setup](DEVELOPMENT.md)
 - [ER diagram guide](ER_diagram.md)
 - [API contract](docs/api/openapi.yaml)

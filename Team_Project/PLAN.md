@@ -34,7 +34,7 @@ here, they win.
 | Database | Migrations `000001`-`000006` with constraints, triggers, functions, search and reporting indexes, and Google Books source columns; 66 named queries; seeds `001`-`004` (201 books, 51 users); verified on a clean PostgreSQL 18 database | No validation, concurrency, or performance evidence scripts yet |
 | API contract | `docs/api/openapi.yaml` 0.2.0 (40 paths, 55 operations), `errors.md`, `examples.md` | Not implemented by the server yet |
 | Docker | `postgres`, `api`, and `tools` services (`migrate`, `seed`, `sqlc`) locally; RDS variant | No `web` service because `frontend/Dockerfile` does not exist |
-| Infrastructure | Terraform provisions RDS, a security group, Secrets Manager, and an EC2 IAM role/profile | No application deployment, custom network, backup policy, alerting, or S3 resources |
+| Infrastructure | Terraform provisions RDS (PostgreSQL 18), a private security group, a Secrets Manager secret for the database credentials, and an EC2 IAM role/profile | No EC2 instance yet ([`AWS_PLAN.md`](AWS_PLAN.md)), custom network, or S3 resources |
 | Documentation | `README.md`, `DEVELOPMENT.md`, `BACKEND_PLAN.md`, `FRONTEND_PLAN.md`, `docs/`, database READMEs | No schema dictionary, query catalog, runbooks, or evidence files yet |
 | Testing | Frontend lint and type check pass; database checks run in throwaway containers | No Go, frontend unit, end-to-end, concurrency, or performance test suites |
 | ER model | `ER_diagram.png` and its guide `ER_diagram.md`, committed, matching migrations `000001`-`000006` | Four cardinality labels at `BOOKS` on the activity relationships still read `1..1` (see `ER_diagram.md` §4) |
@@ -59,7 +59,7 @@ are summarized.
 Team_Project/
 |-- .env.example
 |-- README.md, PLAN.md, DEVELOPMENT.md
-|-- BACKEND_PLAN.md, FRONTEND_PLAN.md
+|-- BACKEND_PLAN.md, FRONTEND_PLAN.md, AWS_PLAN.md
 |-- ER_diagram.png, ER_diagram.md
 |-- docker-compose.yml, docker-compose-rdbs.yml
 |
@@ -104,9 +104,6 @@ layer to be tested independently.
 ```text
 Team_Project/
 |-- .env.example
-|-- .github/
-|   `-- workflows/
-|       `-- ci.yml
 |-- README.md
 |-- PLAN.md
 |-- docker-compose.yml
@@ -159,14 +156,13 @@ Team_Project/
 |   |   |-- types/
 |   |   `-- validation/
 |   |-- tests/
-|   |   |-- e2e/
 |   |   `-- unit/
 |   |-- .dockerignore
 |   |-- Dockerfile
-|   |-- package.json
-|   `-- playwright.config.ts
+|   `-- package.json
 |
 |-- infra/
+|   |-- ec2.tf                 # planned (AWS_PLAN.md)
 |   |-- iam.tf
 |   |-- network.tf
 |   |-- outputs.tf
@@ -196,9 +192,8 @@ Terraform commands directly.
 | Script | Responsibility |
 | --- | --- |
 | `scripts/dev.sh` | Start PostgreSQL, wait for health, apply migrations and seeds, then start the API and frontend with clear logs |
-| `scripts/check.sh` | Run Compose validation, frontend lint/typecheck/build, Go tests, database validation, and `terraform validate`; return one non-zero status if any check fails |
+| `scripts/check.sh` (optional) | Run Compose validation, frontend lint/typecheck/build, Go tests, database validation, and `terraform validate`; return one non-zero status if any check fails |
 | `scripts/reset-db.sh` | Recreate the local database volume, run all migrations, and load seeds; require explicit confirmation because it destroys local data |
-| `.github/workflows/ci.yml` | Run the same non-destructive checks as `scripts/check.sh` on pushes and pull requests |
 
 `dev.sh` and `reset-db.sh` should fail fast if required environment variables
 are missing. `reset-db.sh` should require explicit confirmation and must never
@@ -243,9 +238,11 @@ sqlc generate
 The Go API should expose:
 
 - `/healthz` for process health.
-- `/readyz` for PostgreSQL connectivity and migration readiness.
-- `/api/auth`, `/api/users`, `/api/books`, `/api/search`, `/api/shelves`,
-  `/api/progress`, `/api/reviews`, `/api/ratings`, and `/api/reports`.
+- `/readyz` for PostgreSQL connectivity.
+- `/api/auth`, `/api/users`, `/api/books`, `/api/authors`, `/api/categories`,
+  `/api/shelves`, `/api/reading-progress`, `/api/reading-history`,
+  `/api/reviews`, and `/api/reports` (ratings live under
+  `/api/books/{id}/ratings`).
 - `/api/external/books` (Google Books search through the server) and
   `/api/books/import` (adds one Google volume to the library when a user acts
   on it). `BACKEND_PLAN.md` is the detailed contract.
@@ -261,12 +258,10 @@ Add these commands to `frontend/package.json`:
 | Command | Responsibility |
 | --- | --- |
 | `npm run typecheck` | Run `tsc --noEmit` |
-| `npm run test` | Run component and service unit tests |
-| `npm run test:e2e` | Run Playwright against a disposable local environment |
+| `npm run test` | Run the Vitest unit tests |
 | `npm run check` | Run lint, typecheck, unit tests, and production build in the correct order |
 
-The frontend does not need a separate shell script. API contract checks should
-be implemented as an npm command and invoked by `scripts/check.sh`.
+The frontend does not need a separate shell script.
 
 Required frontend integration work:
 
@@ -280,9 +275,10 @@ Required frontend integration work:
   ratings, shelves, and progress.
 - Expand `src/types/domain.ts` to match the database and OpenAPI contracts,
   including books, authors, categories, shelves, summaries, and timestamps.
-- Move shared loading, error, empty, and optimistic-update behavior into hooks.
-- Add Playwright coverage for public browsing, login, catalog search, shelf
-  movement, progress updates, and review submission.
+- Move shared loading, error, and empty-state behavior into hooks.
+- Verify public browsing, login, catalog search, shelf movement, progress
+  updates, and review submission with the manual UI checklist
+  (`FRONTEND_PLAN.md` §6.3).
 
 ### 5.5 Infrastructure workflow
 
@@ -304,12 +300,12 @@ never opened to `0.0.0.0/0`.
 
 Application infrastructure still needed after the database MVP:
 
-- API container image and ECS service.
-- Frontend deployment.
-- Load balancer and private backend security-group wiring.
-- CloudWatch logs and alarms.
-- Backup and restore checks.
-- Post-MVP S3 bucket and IAM policy.
+- One EC2 instance running the Compose stack (API and web), reached over HTTP.
+- The instance's security group wired to the RDS security group.
+- A backup and restore check.
+- Post-MVP S3 bucket and the IAM policy it needs.
+
+Details and tasks: [`AWS_PLAN.md`](AWS_PLAN.md).
 
 ### 5.6 Documentation
 
@@ -359,15 +355,15 @@ using scripts without manual SQL.
   endpoints through explicit SQL.
 - Add unit and integration tests.
 
-Exit criteria: the API health check reports database readiness, and every MVP
-endpoint is covered by at least one integration test.
+Exit criteria: the API health check reports database readiness, and the main
+endpoints are covered by `httptest` smoke tests.
 
 ### Phase 3 - Frontend integration
 
 - Add TanStack Query and the shared API client provider.
 - Replace mock data and the demo login with API-backed behavior.
 - Implement forms and entity detail views.
-- Add loading, empty, error, conflict, and optimistic-update states.
+- Add loading, empty, error, and conflict states.
 
 Exit criteria: no workspace page depends on `mock-data.ts` or a fake
 `localStorage` session.
@@ -378,7 +374,7 @@ Exit criteria: no workspace page depends on `mock-data.ts` or a fake
 - Add multi-session concurrency scripts.
 - Add at least eight key queries and all required complex SQL.
 - Add indexes and capture before-and-after plans and timings.
-- Complete database validation and Playwright end-to-end tests.
+- Complete database validation and the manual UI checklist.
 
 Exit criteria: required database behavior can be reproduced from scripts and
 the evidence is documented.
@@ -388,8 +384,8 @@ the evidence is documented.
 - Add backend and frontend Dockerfiles and `.dockerignore` files.
 - Add `api` and `web` services to Compose with health checks.
 - Deploy the API, frontend, and private RDS configuration.
-- Verify Secrets Manager access through IAM rather than committed credentials.
-- Add CloudWatch logging and basic alarms.
+- Keep secrets in the gitignored `.env`, never in committed files.
+- Read container logs with `docker compose logs`.
 
 Exit criteria: the deployed application uses RDS for all core operations and
 can be demonstrated without local database access.
@@ -406,18 +402,18 @@ can be demonstrated without local database access.
 | --- | --- | --- |
 | P0 | `database/scripts/migrate.sh` | Nothing downstream can be tested without a schema |
 | P0 | `database/scripts/seed.sh` | Reproducible data is required for API and SQL evidence |
-| P1 | `scripts/check.sh` | Gives developers and CI one consistent quality gate |
 | P1 | `scripts/dev.sh` | Starts the local development stack consistently |
 | P2 | `scripts/reset-db.sh` | Reproduces a clean local database on demand |
+| P2 | `scripts/check.sh` | Optional: one consistent local quality gate |
 
 ## 8. Script Quality Rules
 
-- Scripts must be non-interactive in CI unless they explicitly require
-  confirmation for destructive actions.
+- Scripts must be non-interactive unless they explicitly require confirmation
+  for destructive actions.
 - Scripts must run under WSL/Linux and use LF line endings.
 - Scripts must stop on the first error and return a non-zero exit code.
-- Scripts must read secrets from `.env`, the process environment, or AWS
-  Secrets Manager; secrets must never be committed or echoed.
+- Scripts must read secrets from `.env` or the process environment; secrets
+  must never be committed or echoed.
 - Destructive database scripts must clearly identify the target before
   proceeding.
 - Repeated runs should be safe where practical.
@@ -433,12 +429,13 @@ the `docs/` tree.
 
 Next:
 
-1. Backend Phase 2: config, `pgxpool`, `httpx`, middleware (CORS exposing the
-   pagination, `X-Request-ID`, and `Retry-After` headers), router skeleton,
-   migration-aware `/readyz` (`BACKEND_PLAN.md` §13).
-2. Frontend F0–F1: `typecheck` script, test tooling, the rewritten API client,
-   and expanded types, built against MSW mocks (`FRONTEND_PLAN.md` §7).
+1. Backend Phase 2: config, `pgxpool`, `httpx`, request ID / logging / recovery
+   / timeout / body-limit middleware, router skeleton, and a database-ping
+   `/readyz` (`BACKEND_PLAN.md` §13).
+2. Frontend F0–F1: `typecheck` script, Vitest, the rewritten API client, and
+   expanded types, built against mock responses (`FRONTEND_PLAN.md` §7).
 3. Backend Phase 3 and frontend F2 together: real login against the cookie
    session.
 4. Add `frontend/Dockerfile` and the Compose `web` service.
 5. Add `npm run check`.
+6. Add `ec2.tf` and deploy (`AWS_PLAN.md` §4).

@@ -66,7 +66,7 @@ detail routes.
 
 | File | State |
 | --- | --- |
-| [`src/lib/api-client.ts`](frontend/src/lib/api-client.ts) | `[~]` Base URL from `NEXT_PUBLIC_API_URL`; sends JSON; throws a generic `Error` on non-2xx. No cookies, error envelope, `requestId`, 401 handling, or pagination headers. |
+| [`src/lib/api-client.ts`](frontend/src/lib/api-client.ts) | `[~]` Uses relative `/api/...` URLs (`next.config.ts` forwards them to the Go API); sends JSON; throws a generic `Error` on non-2xx. No error envelope, `requestId`, `204` handling, or pagination headers. |
 | [`src/services/book-service.ts`](frontend/src/services/book-service.ts) | `[~]` 4 calls: library search, get by ID, list reviews, rate. No Google search, import, `ensureLocalBook`, create/update. |
 | [`src/services/reading-service.ts`](frontend/src/services/reading-service.ts) | `[~]` 4 calls: shelves, progress list, progress patch, reading report. No shelf CRUD, history, delete, or reports. |
 | [`src/types/domain.ts`](frontend/src/types/domain.ts) | `[~]` Minimal types. No `ExternalBook`, `Book.source`/`infoLink`/`publishedDatePrecision`, summary fields, `Shelf.type`, `ReadingProgress.version`, user/profile/report types. |
@@ -83,8 +83,9 @@ Installed but **unused**: `@tanstack/react-query`, `react-hook-form`,
 | `npm run lint` | `[x]` Passes |
 | `npx tsc --noEmit` | `[x]` Passes |
 | `typecheck` script | `[ ]` Missing from `package.json` |
-| Unit test runner (Vitest/RTL/MSW) | `[ ]` Missing |
-| Playwright | `[ ]` Missing |
+| Unit test runner (Vitest) | `[ ]` Missing |
+| Playwright | `[ ]` Optional, not required |
+| `next.config.ts` rewrite of `/api/*` to the Go API (`API_PROXY_TARGET`) | `[x]` Done |
 | `web` Dockerfile / Compose service | `[ ]` Missing |
 | `next.config.ts` image domains | `[ ]` Missing (only `reactStrictMode`) |
 
@@ -104,8 +105,9 @@ Installed but **unused**: `@tanstack/react-query`, `react-hook-form`,
 5. **Import on first action.** A single `ensureLocalBook(external)` helper
    returns `external.bookId` when present, otherwise imports and returns the new
    local ID. All shelf/rating/review/progress actions go through it.
-6. **Auth is cookie-based.** `credentials: "include"` on every request; the
-   `bm_session` HttpOnly cookie is the session. Do not write tokens to
+6. **Auth is cookie-based.** The `bm_session` HttpOnly cookie is the session,
+   and `fetch` sends it by default because requests are same-origin (decision
+   16). Do not write tokens to
    `localStorage`. The `accessToken` in `AuthResponse` is for tests/CLI only.
 7. **JSON conventions:** camelCase, UUID strings, RFC 3339 UTC. Lists are raw
    arrays plus `X-Total-Count` / `X-Page` / `X-Page-Size`.
@@ -116,13 +118,9 @@ Installed but **unused**: `@tanstack/react-query`, `react-hook-form`,
    keep their names.
 10. **Google attribution is mandatory** on Google search results and on
     Google-sourced book detail: a visible "Powered by Google" mark plus an
-    `infoLink` to the Google Books page. Stored-library lists get a page-level
-    notice:
-    - Library search, shelf books, author and category books return
-      `source`, so show the notice when any row has `source = "google"`.
-    - Progress, history, reports, and "my reviews/ratings" rows are small cards
-      without `source`. Show the notice on those pages always ("Some book
-      information is provided by Google Books").
+    `infoLink` to the Google Books page. Everywhere else, the app footer shows
+    one line, "Book information from Google Books". There are no per-page
+    conditional rules.
 11. **Google-sourced catalog rows are read-only.** Hide metadata editing when
     `source = "google"`; the API returns `403` for `PATCH /api/books/{id}`.
 12. **Dates render by precision.** `publishedDate` may be year/month/day
@@ -138,23 +136,21 @@ Installed but **unused**: `@tanstack/react-query`, `react-hook-form`,
     external search anonymously (the operation has no `security` block, and
     `BACKEND_PLAN.md` §4.2 lists Google search as public). Clicking
     shelf/rate/review redirects to `/login` with a return path.
-16. **API data is fetched in the browser.** Pages that need API data are client
-    components using TanStack Query, so the `bm_session` cookie travels with
-    each request. Server components render layout and static content only. If
-    a server-side public fetch is added later, it must use a separate
-    server-only URL (for example `API_INTERNAL_URL=http://api:8080` in
-    Compose), because `NEXT_PUBLIC_API_URL=http://localhost:8080` does not
-    reach the API from inside the `web` container.
-17. **One hostname for the web app and the API.** Open the app at
-    `http://localhost:3000` with `NEXT_PUBLIC_API_URL=http://localhost:8080`.
-    `localhost:3000` → `localhost:8080` is same-site, so the `SameSite=Lax`
-    cookie is sent. `127.0.0.1:3000` → `localhost:8080` is cross-site and the
-    cookie is dropped, even though CORS allows the origin.
-18. **Google search has a small budget.** The backend allows 30 requests per
-    minute per IP for `GET /api/external/books` and `POST /api/books/import`
-    combined. Search runs on submit (or after a 3-character minimum and a
-    700 ms pause), keeps the previous results while a new page loads, and never
-    fires on every keystroke.
+16. **The browser only talks to the Next.js app.** `next.config.ts` forwards
+    `/api/*` to the Go API (`API_PROXY_TARGET`: `http://localhost:8080` for
+    `npm run dev`, `http://api:8080` in Compose). The frontend uses relative
+    `/api/...` URLs only, so there is no CORS, no API URL in the bundle, and
+    the `bm_session` cookie belongs to the web app's own host. The target is
+    read when `next build` runs, so the Docker image build takes it as a build
+    argument. Pages that need API data are client components using TanStack
+    Query; server components render layout and static content only.
+17. **Open the app at one hostname:** `http://localhost:3000` locally, the
+    instance's address on EC2. The cookie belongs to the host the page was
+    opened on, so a second hostname (`127.0.0.1`) is a separate session.
+18. **Google search runs on submit.** Search when the user presses Enter or the
+    search button, keep the previous results while a new page loads, and do not
+    send a request on every keystroke. Google's default quota is about 1,000
+    requests a day, and the API does not limit clients itself.
 
 ---
 
@@ -173,7 +169,10 @@ feature components (books, shelves, progress, reviews, reports)
 services/*.ts            one module per API group
       │
       ▼
-lib/api-client.ts        envelope, credentials, headers, 401 event
+lib/api-client.ts        relative /api URLs, error envelope, headers
+      │
+      ▼
+Next.js rewrite          forwards /api/* to the Go API
       │
       ▼
 Go API (/api/...)        Google is called only by the server
@@ -187,7 +186,7 @@ frontend/src/
 │   ├── register/page.tsx                 # new
 │   └── books/[bookId]/page.tsx           # new
 ├── components/
-│   ├── GoogleAttribution.tsx             # new
+│   ├── GoogleAttribution.tsx             # new: "Powered by Google" mark + infoLink
 │   ├── books/BookCard.tsx                # new
 │   ├── books/BookGrid.tsx                # new
 │   ├── books/CoverImage.tsx              # new
@@ -250,6 +249,7 @@ search keys plus `["books"]`.
 - Do not retry `4xx`; retry at most once on network/`5xx`
 - `refetchOnWindowFocus: false` (course demo, avoids surprise calls)
 - `retry: false` for mutations; show the error envelope instead
+- A `QueryCache` `onError` handler invalidates `["auth", "me"]` when a query fails with 401 (§5.1)
 
 ---
 
@@ -267,8 +267,8 @@ Full definitions: [`docs/api/openapi.yaml`](docs/api/openapi.yaml) §`/api/exter
 | `page`, `pageSize` | `pageSize` capped at **40**, default 20. |
 
 Response is `ExternalBook[]` plus `X-Total-Count` (Google's estimate, can shift
-between pages). Errors: `400`, `429 RATE_LIMITED`, `502 UPSTREAM_UNAVAILABLE`,
-`503 UPSTREAM_RATE_LIMITED` (with `Retry-After`).
+between pages). Errors: `400` and `502 UPSTREAM_UNAVAILABLE` (Google failed,
+timed out, or is over its quota).
 
 ### 4.2 `POST /api/books/import`
 
@@ -291,7 +291,7 @@ success for the UI. Never send client-supplied metadata.
 ### 4.4 Google row rules the UI must respect
 
 - `source = "google"` → show attribution and `infoLink`; hide catalog edit.
-- `source = "seed" | "user"` → no Google attribution.
+- `source = "seed" | "user"` → no per-item Google mark or `infoLink`.
 - Google's own ratings are never stored; only local `averageRating` /
   `ratingCount` / `reviewCount` are displayed.
 - An external result may already be local: `bookId` is non-null. Do **not**
@@ -358,9 +358,9 @@ array plus pagination headers (read with `apiClientPage`).
 | | `queryCatalog` | `GET /api/reports/queries` | `/reports` "View SQL" |
 
 Deliberately unused by the UI: `GET /` (service metadata), `/healthz`,
-`/readyz`, `GET /api/search` (alias of `GET /api/books`), `PUT
-/api/reading-progress/{bookId}` (full replace; the form uses `PATCH`), and
-`POST /api/books/{bookId}/reviews` (the form uses the combined `PUT`). The
+`/readyz`, and `POST /api/books/{bookId}/reviews` (the form uses the combined
+`PUT`; the plain `POST` stays in the API as the duplicate-review `409`
+demonstration). The
 existing `bookService.getReviews` and `readingService.getShelves`/`getReport`
 move into `review-service`, `shelf-service`, and `report-service`.
 
@@ -373,7 +373,7 @@ move into `review-service`, `shelf-service`, and `report-service`.
 ```ts
 export class ApiError extends Error {
   status: number;
-  code: string;       // VALIDATION_ERROR, UNAUTHENTICATED, UPSTREAM_RATE_LIMITED, ...
+  code: string;       // VALIDATION_ERROR, UNAUTHENTICATED, UPSTREAM_UNAVAILABLE, ...
   details?: unknown;
   requestId?: string;
 }
@@ -391,7 +391,8 @@ apiClientPage<T>(path, init?): Promise<Page<T>> // reads X-Total-Count/X-Page/X-
 
 Requirements:
 
-- `credentials: "include"` by default.
+- Relative `/api/...` URLs only. `fetch` sends the same-origin session cookie
+  by default.
 - Send `Content-Type: application/json` only when a body exists. `DELETE`
   may have a body: `DELETE /api/users/me` requires `{"confirm": true}`.
 - **Empty responses:** `204` (logout, password change, every `DELETE`) returns
@@ -399,20 +400,14 @@ Requirements:
   body is treated the same way.
 - On non-2xx, parse the envelope; if parsing fails, synthesize `INTERNAL` with
   `requestId` from the `X-Request-ID` response header if present.
-- Read `Retry-After` on `429` and `503` and put it on `ApiError.retryAfter`
-  (seconds). The backend exposes `Retry-After` and `X-Request-ID` through CORS
-  (`BACKEND_PLAN.md` §6.2).
-- **401 handling:** on `401`, dispatch a browser event
-  (`auth:unauthorized`) that clears `["auth","me"]`; `AuthBoundary` then
-  redirects to `/login?returnTo=...`. Do **not** dispatch the event for:
-  - `POST /api/auth/login` and `POST /api/auth/register`: a 401 there means
-    wrong credentials, shown on the form;
-  - `GET /api/auth/me`: a 401 there is the normal "not signed in" answer on
-    public pages.
-- Accept an `AbortSignal`; use a 15 s timeout.
+- **401 handling:** `apiClient` throws an `ApiError` with `status` 401 and does
+  nothing else. The `QueryProvider`'s `QueryCache` `onError` handler invalidates
+  `["auth","me"]` when a *query* fails with 401; the refetched `me` returns
+  `null` and `AuthBoundary` redirects to `/login?returnTo=...`. Mutations
+  (login, register, change password) are not covered by that handler, so a
+  wrong password shows on its form and never signs the user out, and `me`
+  resolves a 401 to `null` instead of throwing.
 - Never log tokens or cookies.
-
-`ApiError` also carries `retryAfter?: number`.
 
 ### 5.2 Auth
 
@@ -446,25 +441,21 @@ Requirements:
 
 1. **Google Books (default)** — calls `searchGoogle(filters)`.
    - Search input that runs on submit (Enter or the search button); optional
-     title/author/isbn/category fields. If live search is wanted, require 3
-     characters and a 700 ms pause. Use `placeholderData: keepPreviousData` so
-     paging does not blank the grid. See decision 18 for the request budget.
+     title/author/isbn/category fields. Use `placeholderData: keepPreviousData`
+     so paging does not blank the grid (decision 18).
    - Result card: cover, title, subtitle, authors, categories, year, publisher,
      page count, attribution link.
    - CTA label depends on `bookId`:
      - `bookId` present → **"Open in library"** (navigate to `/books/{bookId}`).
      - `bookId` null → **"Add to shelf"** (import first).
-   - On `UPSTREAM_UNAVAILABLE` / `UPSTREAM_RATE_LIMITED`, show a banner: Google
-     is unavailable, with **"Search the library instead"** switching tabs.
-   - On `429 RATE_LIMITED` (this browser's per-IP budget), show "Too many
-     searches, try again in N seconds" using `ApiError.retryAfter`, and offer
-     the same library fallback.
+   - On `UPSTREAM_UNAVAILABLE`, show a banner: Google is unavailable or over
+     its quota, with **"Search the library instead"** switching tabs.
    - Respect `pageSize ≤ 40`; show Google's estimated total, not an exact count.
 2. **In the library** — calls `searchBooks(filters)`.
    - Filters: `q`, `authorId`, `categoryId`, `sort`
      (`relevance|newest|rating|title|popular`), page/pageSize.
    - Rows are normal `Book` objects; show local rating summary.
-   - Page-level Google attribution notice if any result has `source = "google"`.
+   - Rows with `source = "google"` show the `infoLink`.
 
 Public `/explore` gets a real Google search using the same result component but
 no shelf/rate CTAs; instead, "Sign in to save" → `/login?returnTo=/explore`.
@@ -529,8 +520,9 @@ its new `bookId`.
 
 ### 5.7 Components to build
 
-- `GoogleAttribution` — small "Powered by Google" mark + `infoLink`; two modes:
-  per-item (results, detail) and page-level notice (library lists).
+- `GoogleAttribution` — small "Powered by Google" mark + `infoLink`, used on
+  Google results and Google-sourced detail. The footer line "Book information
+  from Google Books" is plain text in the layout.
 - `BookCard` / `BookGrid` — shared between Google results and library results;
   accepts a `variant` for CTA and attribution.
 - `CoverImage` — renders `coverUrl`; placeholder when null/broken; never blocks
@@ -547,7 +539,8 @@ its new `bookId`.
 
 - Every list page has distinct **loading**, **empty**, **error**, and
   **unauthorized** states.
-- Optimistic updates for rating and shelf membership; roll back on error.
+- After each mutation, invalidate the affected queries (§3.2). No optimistic
+  updates.
 - Disable submit buttons while mutations are pending.
 - Show `STALE_VERSION` as a recoverable conflict, never a generic failure.
 - Do not show raw SQL errors, cookies, or tokens.
@@ -562,25 +555,29 @@ its new `bookId`.
 ### 6.1 Tooling to add
 
 - `typecheck` script: `tsc --noEmit`
-- Vitest + React Testing Library + jsdom + MSW (mock Service Worker)
-- Playwright for E2E
-- `test`, `test:watch`, `test:e2e` scripts
+- Vitest for the pure helpers in 6.2, with `fetch` mocked by `vi.fn`. No React
+  Testing Library and no MSW.
+- `test` script
+- Playwright is optional (6.3)
 
-### 6.2 Unit / integration (MSW)
+### 6.2 Unit tests (Vitest)
 
-- `api-client`: envelope parsing, `requestId`, credentials, header parsing,
-  401 event, timeout.
+- `api-client`: envelope parsing, `requestId`, `204` handling, pagination
+  header parsing, relative URLs.
 - `ensureLocalBook`: returns existing `bookId`; imports when null; never double
   imports.
-- Date precision formatter; rating formatter.
-- Auth: login success/failure, register validation, `me` 401 redirect.
-- Catalog: Google error → library fallback; pagination.
-- Forms: Zod messages, stale-version conflict, delete confirmations.
+- Date-precision formatter; rating formatter.
+- Zod schemas: password length (8-72), required fields.
 
-### 6.3 Playwright flows (from BACKEND_PLAN §9.3)
+### 6.3 Manual UI checklist
+
+The graded evidence is the database, so UI verification is a written checklist
+run by hand against the Compose stack, with screenshots saved in
+`docs/evidence/ui-checklist.md` (they also feed the report and the demo). It
+uses the flows in `BACKEND_PLAN.md` §9.3:
 
 1. Register, log in, dashboard loads.
-2. Search Google (stubbed), import a result, shelve it; search library by
+2. Search Google, import a result, shelve it; search library by
    title/author/category.
 3. Book detail shows authors, categories, summaries.
 4. Add to shelf and move between status shelves.
@@ -589,8 +586,11 @@ its new `bookId`.
 7. Rate a book and see the summary update.
 8. Open each report with non-empty data.
 
-CI gate: `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`,
-`npm run test:e2e`.
+If time allows, automate two or three of these with Playwright. It is not
+required.
+
+Checks before a demo: `npm run lint`, `npm run typecheck`, `npm test`,
+`npm run build`.
 
 ---
 
@@ -603,7 +603,7 @@ CI gate: `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`,
 - [x] Visual system in `globals.css`; responsive public drawer
 - [x] `npx tsc --noEmit` and `npm run lint` pass (2026-11-12)
 - [ ] Add `typecheck` script
-- [ ] Add Vitest/RTL/MSW and Playwright dependencies
+- [ ] Add Vitest (and optionally Playwright)
 - [ ] Delete unused `Navbar`, `HeroSection`, `Footer`, `ShelvesSection`,
       `DiscoverySection` (or adopt them intentionally)
 - [ ] Remove `mock-data.ts` from runtime; keep only as a test fixture if useful
@@ -614,12 +614,10 @@ CI gate: `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`,
 
 ### Phase F1 — Contract, types, and API client
 
-- [x] Base `api-client` with `NEXT_PUBLIC_API_URL` and JSON
+- [x] Base `api-client` (relative `/api` URLs, JSON) and the `next.config.ts` rewrite
 - [x] 8 initial service methods
 - [~] Baseline domain types
-- [ ] `ApiError` + `ErrorEnvelope` parsing; `requestId` and `retryAfter` surfaced
-- [ ] `credentials: "include"`, timeout, 401 event with the login/register/`me`
-      exclusions
+- [ ] `ApiError` + `ErrorEnvelope` parsing; `requestId` surfaced
 - [ ] `204` / empty-body responses return `undefined`
 - [ ] `apiClientPage` reading pagination headers
 - [ ] Expand `Book`, `Shelf`, `ReadingProgress`, `Review`, `Rating`,
@@ -641,7 +639,7 @@ client tests pass.
 - [ ] `/register` page
 - [ ] `AuthBoundary` via `["auth","me"]`; remove `localStorage`
 - [ ] `AppShell` profile, logout, active nav, header search
-- [ ] 401 redirect handling
+- [ ] 401 handling through the `QueryCache` `onError` handler
 
 **Exit:** demo login works against the Go API; no `localStorage` session.
 
@@ -668,7 +666,7 @@ library tab finds the imported book.
 - [ ] Attribution, `infoLink`, and date-by-precision rendering
 - [ ] Shelf picker (import-on-action)
 - [ ] Progress form (page + status + version)
-- [ ] Rating control (optimistic, summary refresh)
+- [ ] Rating control (summary refresh)
 - [ ] Review form via `PUT /api/books/{bookId}/review` (rating + review in one
       transaction); edit and delete
 - [ ] Percentage-only progress when `totalPages` is 0
@@ -705,9 +703,8 @@ detail page.
 - [x] Public mobile drawer
 - [ ] Featured books from the API instead of `mock-data`; `BookCarousel` empty
       guard
-- [ ] Page-level Google attribution notices
+- [ ] Footer line "Book information from Google Books"
 - [ ] Loading/empty/error/unauthorized states on every route
-- [ ] Optimistic updates and rollback
 - [ ] Accessibility pass (focus, labels, dialogs, contrast)
 - [ ] Responsive QA at 360/768/1280 px
 - [ ] Empty-state copy consistency
@@ -717,18 +714,19 @@ detail page.
 ### Phase F8 — Quality gates and deployment
 
 - [x] Lint and type-check
-- [ ] Vitest/RTL/MSW unit suite
-- [ ] Playwright 8 flows
-- [ ] CI job (lint → typecheck → unit → build → e2e)
-- [ ] `frontend/Dockerfile` + Compose `web` service
-- [ ] Production `NEXT_PUBLIC_API_URL` and CORS/cookie verification
+- [ ] Vitest unit tests
+- [ ] Manual UI checklist with screenshots (`docs/evidence/ui-checklist.md`)
+- [ ] `frontend/Dockerfile` (build argument `API_PROXY_TARGET=http://api:8080`)
+      and the Compose `web` service
+- [ ] Check the session cookie through the proxy on the EC2 address (plain
+      HTTP, `COOKIE_SECURE=false`)
 - [ ] README/DEVELOPMENT updates
 
-**Exit:** CI is green; the app runs from Compose against the API.
+**Exit:** the checks in §6.3 pass and the app runs from Compose against the API.
 
 ### 7.1 Backend dependencies
 
-A frontend phase can be built against MSW mocks of `openapi.yaml` at any time,
+A frontend phase can be built against mock responses shaped by `openapi.yaml` at any time,
 but it is only **done** when it passes against the real API. That needs the
 backend phase on the right.
 
@@ -736,7 +734,7 @@ backend phase on the right.
 | --- | --- | --- |
 | F0 Baseline | none | none |
 | F1 Contract and client | none (mocks only) | none |
-| F2 Auth | Phase 2 (CORS, cookies, error envelope) and Phase 3 (auth) | `/api/auth/*`, `/api/users/me` |
+| F2 Auth | Phase 2 (error envelope) and Phase 3 (auth, session cookie) | `/api/auth/*`, `/api/users/me` |
 | F3 Catalog and Google | Phase 4 | `/api/books`, `/api/external/books`, `/api/books/import`, `/api/authors`, `/api/categories` |
 | F4 Book detail and activity | Phases 4, 5, 6 | `/api/books/{id}`, `/api/shelves/*`, `/api/reading-progress/*`, `/api/books/{id}/ratings`, `/api/books/{id}/review(s)` |
 | F5 Shelves and progress | Phase 5 | `/api/shelves*`, `/api/reading-progress*`, `/api/reading-history` |
@@ -758,7 +756,7 @@ Backend Phase 8 ("Frontend integration") is this plan's phases F2–F7.
 - `EmptyState`, `SectionPage`, `FilterBar` visuals.
 - `DashboardView` layout (data-free, but structurally complete).
 - `AppShell` layout (needs dynamic profile/nav only).
-- Base `api-client` URL handling and the 8 existing service calls (still valid).
+- Base `api-client` (relative URLs) and the 8 existing service calls (still valid).
 
 ### 8.2 Implemented but must change
 
@@ -766,7 +764,7 @@ Backend Phase 8 ("Frontend integration") is this plan's phases F2–F7.
 | --- | --- | --- |
 | `login/page.tsx` | Fake session | Real auth service + RHF/Zod; remove `localStorage` |
 | `AuthBoundary.tsx` | Fake session | `useQuery(["auth","me"])`; redirect on 401 |
-| `api-client.ts` | Contract v0.2.0 | Cookies, error envelope, `requestId`, pagination headers, 401 event |
+| `api-client.ts` | Contract v0.2.0 | Error envelope, `requestId`, `204` handling, pagination headers |
 | `types/domain.ts` | Google + full contract | Add `source`, `infoLink`, precision, `ExternalBook`, summaries, user/report types |
 | `book-service.ts` | Google design | Add `searchGoogle`, `importGoogleBook`, `ensureLocalBook`; keep library search; add detail/create/update/ratings summary |
 | `reading-service.ts` | Full contract | Add history, delete, shelf CRUD (or split into `shelf-service`) |
@@ -787,7 +785,7 @@ Backend Phase 8 ("Frontend integration") is this plan's phases F2–F7.
 - `GoogleAttribution`, `BookCard`, `BookGrid`, `CoverImage`, `Pagination`,
   `LoadingState`, `ErrorState`, `ConfirmDialog`.
 - All forms and Zod schemas.
-- Test suite (Vitest/RTL/MSW, Playwright), `typecheck` script, CI.
+- Vitest unit tests, the `typecheck` script, and the manual UI checklist.
 - `frontend/Dockerfile` and Compose `web` service.
 - Google image domain config, if `next/image` is used.
 
@@ -801,17 +799,17 @@ Backend Phase 8 ("Frontend integration") is this plan's phases F2–F7.
 | --- | --- |
 | Passing `googleBooksId` to an activity endpoint | Activity APIs accept only local UUIDs; all actions go through `ensureLocalBook` |
 | Double import or duplicate volume | Import is idempotent (`200`/`201`); treat both as success; trust returned `bookId` |
-| Google outage or quota exhaustion | `UPSTREAM_*` → banner + library tab; respect `Retry-After`; pageSize ≤ 40 |
+| Google outage or quota exhaustion | `UPSTREAM_UNAVAILABLE` → banner + library tab; pageSize ≤ 40 |
 | Google total count is an estimate | Label pagination as approximate on the Google tab |
 | Hotlinked covers break or are blocked | `CoverImage` fallback; keep attribution and `infoLink`; no S3 dependency |
-| Attribution missed on stored lists | Page-level notice wherever `source = "google"` can appear; per-item on search/detail |
+| Attribution missed on stored lists | Footer line on every page; mark + `infoLink` on Google results and Google-sourced detail |
 | Google rows edited by mistake | Hide edit when `source = "google"`; API returns `403` |
-| Cookie/CORS misconfiguration | `credentials: "include"`, `ALLOWED_ORIGINS`, verify both ports (3000 → 8080) |
-| `401` mid-session | Global 401 event; query cache clear; redirect with `returnTo` |
+| Rewrite points at the wrong API address | `API_PROXY_TARGET` is read at `next build`; pass `http://api:8080` as a build argument in Compose and rebuild when it changes |
+| `401` mid-session | `QueryCache` `onError` invalidates `["auth","me"]`; `AuthBoundary` redirects with `returnTo` |
 | Stale progress write | Send `version`; on `409 STALE_VERSION` prompt refresh, never retry blindly. (The database raises SQLSTATE `BM001`; the browser only ever sees `STALE_VERSION`.) |
-| Google search budget (30/min per IP) exhausted by typing or paging | Search on submit (decision 18); keep previous data; show `429 RATE_LIMITED` with `retryAfter` and offer library search |
-| Session cookie silently missing | Same hostname for app and API (decision 17); browser-side data fetching (decision 16) |
-| Global 401 handler fires on a wrong password | Exclude login, register, and `me` from the 401 event (§5.1); wrong current password on password change is `400`, not `401` |
+| Google quota used up by typing or paging | Search on submit (decision 18); keep previous data; fall back to library search on `UPSTREAM_UNAVAILABLE` |
+| Session cookie missing on a second hostname | The cookie belongs to the host the page was opened on (decision 17); log in again there |
+| A wrong password signs the user out | Only queries trigger the 401 handler, not mutations (§5.1); a wrong current password on password change is `400`, not `401` |
 | `response.json()` on a `204` | `api-client` returns `undefined` for empty responses (§5.1) |
 | Empty featured list crashes `BookCarousel` | Render the carousel only for a non-empty list (§5.6) |
 | Book without page count | `totalPages: 0`; progress form switches to percentage (§5.5) |
@@ -827,17 +825,17 @@ Settled (2026-11-12):
 - **Anonymous Google search:** allowed. `GET /api/external/books` has no
   `security` block in `openapi.yaml`, and `BACKEND_PLAN.md` §4.2 lists it as a
   public read endpoint. Import (`POST /api/books/import`) requires login.
+- **Same origin:** the browser only talks to the Next.js app, which forwards
+  `/api/*` to the API (decision 16), so there is no CORS or cross-site cookie
+  question.
+- **No optimistic updates:** invalidate and refetch after each mutation.
 
 Still open:
 
 1. Author/category detail as routes (`/authors/[authorId]`) or as drawers on
    `/authors`?
 2. `next/image` for Google covers, or plain `<img>` for the MVP?
-3. Optimistic updates for rating/shelf only, or also progress?
-4. Full report suite on one page with tabs, or separate report routes?
-5. Deployment: same domain for web and API (simplest cookies) or cross-site
-   (needs `SameSite=None; Secure` and a CSRF strategy). Shared with
-   `BACKEND_PLAN.md` §16, open decision 2.
+3. Full report suite on one page with tabs, or separate report routes?
 
 ---
 
@@ -846,7 +844,7 @@ Still open:
 | Requirement | Frontend evidence |
 | --- | --- |
 | Google Books discovery through the server, key never in the browser | Catalog/explore use `/api/external/books`; no Google URL or key in `src/` |
-| Google content attribution | `GoogleAttribution` on every Google result/detail; `infoLink` |
+| Google content attribution | `GoogleAttribution` mark + `infoLink` on Google results and detail; footer line on every page |
 | Local book identity for activity | `ensureLocalBook`; all activity calls use local UUIDs |
 | Explicit SQL-backed features demonstrated in UI | Catalog search, shelf joins, progress, reviews, reports all render API data |
 | Optimistic concurrency | Progress form sends `version`; stale-version recovery UI |
@@ -867,8 +865,8 @@ The frontend milestone is complete when:
 3. Login/register/logout/me work against the Go API with the cookie session.
 4. Catalog offers Google search and library search; a Google result can be
    imported once and then shelved, rated, reviewed, and tracked.
-5. Every Google-derived surface shows attribution and `infoLink`; Google rows
-   cannot be edited.
+5. Google results and Google-sourced detail show the mark and `infoLink`, every
+   page has the footer line, and Google rows cannot be edited.
 6. Every page has loading, empty, error, and unauthorized states.
-7. The eight Playwright flows pass.
+7. The manual UI checklist (§6.3) passes and is recorded with screenshots.
 8. The app runs from the Compose `web` service against the API.

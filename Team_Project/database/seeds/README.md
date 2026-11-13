@@ -68,21 +68,17 @@ All demo users share this password.
 
 ## Password hashing note
 
-PostgreSQL cannot compute Argon2id in SQL. The demo seed therefore uses bcrypt
-through the `pgcrypto` extension:
+Every password in this project is hashed with bcrypt, cost 12. The demo seed
+uses the `pgcrypto` extension:
 
 ```sql
 crypt('Password123!', gen_salt('bf', 12))
 ```
 
-The Go auth service must:
-
-1. Accept a bcrypt hash for seeded demo accounts.
-2. Rehash the password to Argon2id on the first successful login.
-3. Use Argon2id directly for every account created through the API.
-
-This keeps demo data reproducible without weakening the production password
-path.
+The Go auth service hashes new passwords with `golang.org/x/crypto/bcrypt` at
+the same cost and verifies seeded and API-created accounts the same way, so no
+rehash step is needed. bcrypt only reads the first 72 bytes of a password, so
+the API accepts passwords of 8 to 72 bytes.
 
 ## Deterministic IDs
 
