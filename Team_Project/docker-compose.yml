@@ -35,6 +35,7 @@ services:
       DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       DB_SSLMODE: disable
       JWT_SECRET: ${JWT_SECRET:-local-development-secret}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
       GOOGLE_BOOKS_API_KEY: ${GOOGLE_BOOKS_API_KEY:-}
       GOOGLE_BOOKS_COUNTRY: ${GOOGLE_BOOKS_COUNTRY:-US}
     ports:

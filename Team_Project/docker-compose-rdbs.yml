@@ -13,6 +13,7 @@ services:
       DB_PASSWORD: ${RDS_PASSWORD:?Set RDS_PASSWORD in .env}
       DB_SSLMODE: ${RDS_SSLMODE:-require}
       JWT_SECRET: ${JWT_SECRET:-local-development-secret}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
       GOOGLE_BOOKS_API_KEY: ${GOOGLE_BOOKS_API_KEY:-}
       GOOGLE_BOOKS_COUNTRY: ${GOOGLE_BOOKS_COUNTRY:-US}
     ports:

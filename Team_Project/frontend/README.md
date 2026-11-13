@@ -12,10 +12,10 @@ npm run dev
 
 Open http://localhost:3000.
 
-The API base URL is configured with `NEXT_PUBLIC_API_URL` (default
-`http://localhost:8080`). Open the app at `http://localhost:3000`, not
-`127.0.0.1:3000`: the session cookie is only sent when the app and the API use
-the same hostname.
+The browser calls `/api/...` on the page's own origin. `next.config.ts` forwards
+those requests to the Go API at `API_PROXY_TARGET` (default
+`http://localhost:8080`), so there is no CORS and no API URL in the browser
+bundle. The target is read when `next dev` or `next build` starts.
 
 ## Status
 
@@ -25,7 +25,7 @@ data, login writes a demo value to `localStorage`, and the home carousel uses
 `src/data/mock-data.ts`.
 
 Integration work (API client, cookie session, Google Books search and import,
-book detail, shelves, progress, reviews, reports, tests) is planned in
+book detail, shelves, progress, reviews, reports) is planned in
 [`../FRONTEND_PLAN.md`](../FRONTEND_PLAN.md).
 
 ## Checks
