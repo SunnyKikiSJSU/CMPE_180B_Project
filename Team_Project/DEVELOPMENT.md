@@ -84,9 +84,10 @@ JWT_SECRET=choose-a-long-local-secret
 Do not place real credentials in `.env.example` or commit `.env`.
 
 If the database was created with the Terraform in `infra/`, take `RDS_HOST`
-from `terraform output -raw db_address`; the database name, user, and password
-are in the Secrets Manager secret (`terraform output -raw db_secret_arn`; the
-lookup command is in [`AWS_PLAN.md`](AWS_PLAN.md) §1.1). The Terraform defaults
+from `terragrunt output -raw db_address` in `infra/live/dev/data`; the database
+name, user, and password are in the Secrets Manager secret
+(`terragrunt output -raw db_secret_arn`; the lookup command is in
+[`AWS_PLAN.md`](AWS_PLAN.md) §1.1). The Terraform defaults
 are database `appdb` and user `appadmin`.
 
 ### Google Books values (both modes)
