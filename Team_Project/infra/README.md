@@ -1,57 +1,168 @@
-# Infra (Terraform) — RDS Data Tier
+# Infra (Terraform + Terragrunt)
 
-Provisions the Amazon RDS instance for the team project's data tier.
+AWS for the Book Metaverse Portal in `us-west-2`: the RDS data tier written by
+the team, plus the EC2 app tier from [`AWS_PLAN.md`](../AWS_PLAN.md) §4.2.
+Terraform modules hold the resources; Terragrunt supplies remote state, the
+provider, and the wiring between units.
+
+## Layout
+
+```text
+infra/
+├── root.hcl                    # S3 remote state (one key per unit, S3 lock file), aws provider, shared inputs
+├── modules/
+│   ├── data/                   # The team's RDS tier, unchanged: RDS PostgreSQL 18, DB security group,
+│   │                           # random password, Secrets Manager secret, backend IAM role + instance profile
+│   ├── app_security_group/     # App security group: in HTTP 80 (+ SSH from listed CIDRs); out 443, 80, 5432 to the VPC
+│   └── app/                    # EC2 (Amazon Linux 2023, Docker + Compose), optional Elastic IP, Session Manager
+└── live/
+    └── dev/
+        ├── env.hcl             # environment, region, project_name
+        ├── app-sg/terragrunt.hcl
+        ├── data/terragrunt.hcl # + .terraform.lock.hcl (aws 5.100.0, random 3.9.1, as originally applied)
+        └── app/terragrunt.hcl
+```
+
+Order (Terragrunt resolves it from the `dependency` blocks): **app-sg → data → app**.
+The app security group is its own unit so the database security group can allow
+it without a cycle (the app instance needs the data tier's instance profile).
+
+| Unit | Creates | Uses |
+| --- | --- | --- |
+| `app-sg` | `aws_security_group.app` and its rules | — |
+| `data` | Everything that was in `infra/*.tf` before | `app-sg` security group as `backend_security_group_id`, so RDS accepts only the app instance |
+| `app` | `aws_instance.app`, `aws_eip.app`, Session Manager policy on the backend role | `app-sg` security group; `data` instance profile and role |
+
+## Requirements
+
+- Terraform >= 1.10 (S3 native locking) and Terragrunt 1.x. `root.hcl` sets
+  `terraform_binary = "terraform"`; Terragrunt would otherwise run OpenTofu.
+- AWS credentials for the **course account only**, for example
+  `export AWS_PROFILE=<course-profile>`. Check before every run:
+  `aws sts get-caller-identity`.
+- `export TG_STATE_BUCKET=<globally unique bucket name>` for the state bucket.
 
 ## Usage
 
 ```bash
-cd "Team Project/infra"
-terraform init
-terraform plan
-terraform apply
+cd Team_Project/infra/live/dev
+export AWS_PROFILE=<course-profile> TG_STATE_BUCKET=<state-bucket>
+
+# First time only: create the state bucket (versioned, encrypted, public access blocked).
+terragrunt run --all --backend-bootstrap -- init
+
+terragrunt run --all -- plan          # review every unit
+terragrunt run --all -- apply         # applies app-sg, then data, then app
+
+# One unit at a time
+cd app && terragrunt plan && terragrunt apply
+
+# Values for .env (AWS_PLAN.md §4.3)
+cd ../data && terragrunt output -raw db_address
+terragrunt output -raw db_secret_arn  # DB_SECRET_ARN for the API
+cd ../app && terragrunt output -raw app_url
 ```
 
-No password needs to be supplied — if `db_password` is left unset, a random
-24-character password is generated automatically and stored **only** in AWS
-Secrets Manager (see `db_secret_arn` output). If you want to pin a specific
-password instead, pass `-var="db_password=<...>"` or set it in a gitignored
-`secrets.auto.tfvars` file.
+`run --all -- apply` asks for confirmation once for the whole stack. Plan with
+`run --all` shows **mock values** for dependencies that are not applied yet
+(for example `sg-00000000000000000`); apply never uses mocks.
 
-`.terraform/` and `*.tfstate*` are gitignored — the state file still contains
-the password in plaintext, so never commit it regardless.
+## Moving the existing state
 
-## What this creates
+The data tier was applied before this layout existed. The `data` unit uses the
+same module code with the same resource addresses (`aws_db_instance.this`,
+`aws_secretsmanager_secret.db`, ...), so only the **state** has to move. Done
+correctly, AWS sees no change to the database, secret, or IAM role.
 
-- An `aws_db_instance` (RDS) using the account's **default VPC** and its
-  subnets — no custom VPC needed for the class project.
-- A dedicated security group for the database that only allows inbound
-  traffic on the DB port from either:
-  - the backend tier's security group (`backend_security_group_id`), or
-  - specific CIDR blocks (`allowed_cidr_blocks`) — use this only for local
-    development convenience, not for the real deployed backend.
+1. Freeze changes: nobody runs Terraform in the old `infra/` directory from now on.
+2. Export the current state with the commit **before** this change (where the
+   `.tf` files were directly in `infra/`), using whatever backend it was applied
+   with:
 
-## Secrets & IAM
+   ```bash
+   git checkout <commit before the Terragrunt change> -- Team_Project/infra
+   cd Team_Project/infra && terraform init && terraform state pull > /tmp/data.tfstate
+   terraform state list                     # note the resources
+   cd - && git checkout HEAD -- Team_Project/infra
+   ```
 
-- **`aws_secretsmanager_secret.db`** stores `{engine, host, port, dbname, username, password}` as a single JSON secret — this is the only place the password lives outside Terraform state.
-- **`aws_iam_role.backend`** + **`aws_iam_instance_profile.backend`** grant read-only access to exactly that one secret (`secretsmanager:GetSecretValue`), nothing else. Attach `backend_instance_profile_name` to whatever EC2 instance(s) run the backend.
-- If the backend ends up on ECS/Lambda instead of EC2 rather than plain EC2, reuse `aws_iam_policy.read_db_secret` with a different assume-role principal instead of the EC2 instance profile.
-- The backend's runtime code should call `secretsmanager:GetSecretValue` on `db_secret_arn` at startup — **no DB credentials should ever be passed as plain environment variables, command-line args, or committed config.**
+   Also note any variable values it was applied with (a local `*.tfvars` or
+   `-var` flags, for example `allowed_cidr_blocks`). Put them in
+   `live/dev/data/terragrunt.hcl` `inputs`, or the plan will try to change them.
+3. Create the app security group (new resources only):
 
-## Wiring up the backend
+   ```bash
+   cd Team_Project/infra/live/dev/app-sg
+   terragrunt run --backend-bootstrap -- init && terragrunt apply
+   ```
 
-1. Deploy this (`terraform apply`).
-2. Attach `backend_instance_profile_name` to the backend's EC2 instance(s).
-3. Give the backend's security group ID to `backend_security_group_id` (or
-   add your dev IP's CIDR to `allowed_cidr_blocks` for local testing) and
-   `terraform apply` again.
-4. The backend is the **only** tier that should ever read `db_secret_arn` —
-   never pass DB credentials to the frontend.
+4. Push the state into the `data` unit and check it:
+
+   ```bash
+   cd ../data
+   terragrunt init
+   terragrunt state list                    # must be empty before the push
+   terragrunt state push /tmp/data.tfstate
+   terragrunt state list                    # same resources as in step 2
+   terragrunt plan
+   ```
+
+   The plan must show **no destroy and no replace**. Expected: `1 to add`
+   (`aws_security_group_rule.from_backend[0]`, RDS now allows the app security
+   group) and possibly in-place changes you can explain. If anything would be
+   replaced, stop: do not apply, and compare the inputs with step 2.
+5. `terragrunt apply` in `data`, then `cd ../app && terragrunt apply`.
+6. Keep `/tmp/data.tfstate` until the app works, then delete it: it contains
+   the database password in plain text.
+
+## Secrets and IAM
+
+- **`aws_secretsmanager_secret.db`** stores `{engine, host, port, dbname, username, password}`
+  as one JSON secret; the generated password exists only there and in the state.
+- **`aws_iam_role.backend`** + **`aws_iam_instance_profile.backend`** may read exactly
+  that secret (`secretsmanager:GetSecretValue`). The `app` unit attaches the
+  instance profile to the EC2 instance and, with `enable_ssm = true`, adds
+  `AmazonSSMManagedInstanceCore` to the same role for Session Manager.
+- The API reads the secret at startup when `DB_SECRET_ARN` is set
+  (`backend/README.md`); otherwise it uses `DB_*` from `.env`. Never pass database
+  credentials to the frontend.
+- State contains the database password in plain text. The state bucket is
+  encrypted and private; never commit `*.tfstate`.
+
+## App instance
+
+- Amazon Linux 2023 (latest at creation; later AMI releases are ignored so the
+  instance is not replaced), `t3.small`, 30 GB encrypted gp3 root volume.
+- IMDSv2 required, hop limit 2 so the API container can use the instance role.
+- First boot installs Docker, git, and the Compose v5.8.0 and Buildx v0.39.1
+  plugins (pinned, SHA-256 verified). Deploying the app is manual (AWS_PLAN.md §4.3).
+- Access: Session Manager (`aws ssm start-session --target "$(terragrunt output -raw instance_id)"`),
+  or SSH when `key_name` and `ssh_cidr_blocks` are set. Port 8080 is never opened.
+
+## Known findings (Trivy)
+
+`trivy config modules` reports, for the team's RDS in `modules/data`:
+storage not encrypted (HIGH), backup retention, IAM database authentication,
+and deletion protection (MEDIUM). These are the optional hardening items in
+`AWS_PLAN.md` §1.3. **`storage_encrypted = true` replaces an existing database**,
+so decide before relying on its data. The app security group's outbound
+HTTPS/HTTP to `0.0.0.0/0` is also flagged; the instance needs it for packages,
+images, Google Books, and AWS APIs (there is no NAT or VPC endpoint in this
+course setup).
+
+## Cost and teardown
+
+Stop the instance between sessions; RDS can be stopped for up to 7 days. The
+Elastic IP is billed hourly. After grading, take a manual RDS snapshot if the
+data matters (`skip_final_snapshot = true`), then
+`terragrunt run --all -- destroy` (app, then data, then app-sg). Empty and
+delete the state bucket last.
 
 ## Variables worth customizing
 
-See [`variables.tf`](variables.tf) — in particular `db_engine`,
-`db_engine_version`, `db_instance_class`, and `db_allocated_storage_gb`. The
-database defaults to PostgreSQL 18 (`db_engine = "postgres"`,
-`db_engine_version = "18"`). Change the engine and version together only if the
-course requirement changes. The instance defaults are sized for Free Tier
-eligibility (`db.t4g.micro`, 20 GB, single-AZ).
+- `modules/data/variables.tf`: `db_engine`, `db_engine_version` (PostgreSQL 18),
+  `db_instance_class` (`db.t4g.micro`), `db_allocated_storage_gb` (20). Changing the
+  engine, `db_name`, or `project_name` on an existing database replaces it.
+- `live/dev/app/terragrunt.hcl`: `instance_type`, `root_volume_gb`, `key_name`,
+  `create_eip`, `enable_ssm`.
+- `live/dev/app-sg/terragrunt.hcl`: `ssh_cidr_blocks` (never `0.0.0.0/0`).

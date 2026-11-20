@@ -282,15 +282,16 @@ Required frontend integration work:
 
 ### 5.5 Infrastructure workflow
 
-Infrastructure does not need shell wrappers. Run Terraform directly and
-review each plan before applying it:
+Infrastructure does not need shell wrappers. Run Terragrunt from
+`infra/live/dev` (or one unit's folder) and review each plan before applying it
+(`infra/README.md`):
 
 ```bash
-terraform fmt -check
-terraform init
-terraform validate
-terraform plan -out=rds-test.tfplan
-terraform apply rds-test.tfplan
+terraform fmt -check -recursive ../..
+terragrunt hcl fmt --check
+terragrunt run --all -- validate
+terragrunt run --all -- plan
+terragrunt run --all -- apply
 ```
 
 The infrastructure plan should keep development and production settings

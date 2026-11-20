@@ -247,7 +247,7 @@ The deployment target is small on purpose (see [`AWS_PLAN.md`](AWS_PLAN.md)):
 Browser --HTTP :80--> EC2 instance (Docker Compose: web + api) --> RDS PostgreSQL 18 (private)
 ```
 
-- RDS is already defined in Terraform (`infra/`) and is not publicly accessible.
+- RDS is already defined in Terraform (`infra/`, run with Terragrunt) and is not publicly accessible.
   Only the instance's security group is allowed to connect to it.
 - One EC2 instance runs the Next.js (`web`) and Go (`api`) containers. Only
   `web` is exposed; it forwards `/api/*` to the API over the Compose network.

@@ -23,4 +23,6 @@ nobody reopens them by accident.
   and 22 (`AGENTS.md` item 30).
 - The contract's field names differ from some sqlc row names. The service
   layer renames or combines them; no query needs to change (`AGENTS.md` item 28).
-- `infra/` belongs to a teammate and is not changed by this project's work.
+- `infra/` was restructured into Terragrunt units with the agreement of its
+  author (2026-11-19). The data tier's resources and addresses are unchanged;
+  only where its state lives moves (`infra/README.md`).

@@ -9,7 +9,8 @@ This is a course project, so the plan is deliberately small: one RDS database,
 one EC2 instance, plain HTTP, and secrets in the gitignored `.env` file.
 
 - **Last updated:** 2026-11-12
-- **Terraform:** [`infra/`](infra/) (AWS provider `~> 5.0`, region `us-west-2`),
+- **Terraform + Terragrunt:** [`infra/`](infra/) (AWS provider `~> 5.0`, region `us-west-2`);
+  units `app-sg` → `data` → `app` under `infra/live/dev` (restructured 2026-11-19),
   written by the team. This plan does not remove or change any existing
   resource; it only lists additions.
 - **Deployment target:** one EC2 instance running Docker Compose against private
@@ -47,7 +48,7 @@ where you look up the database credentials once:
 
 ```bash
 aws secretsmanager get-secret-value \
-  --secret-id "$(terraform output -raw db_secret_arn)" \
+  --secret-id "$(terragrunt output -raw db_secret_arn)" \
   --query SecretString --output text
 ```
 
@@ -141,20 +142,24 @@ Maps to `BACKEND_PLAN.md` Phase 10 and `FRONTEND_PLAN.md` Phase F8.
 
 ### 4.2 Terraform additions (`infra/`)
 
-- [ ] `ec2.tf`
-  - `aws_security_group.app`: port 80 from anywhere; port 22 from
-    `var.ssh_cidr_blocks` only.
-  - `aws_instance.app`: Amazon Linux 2023 AMI (data source), `t3.small`
-    (2 GB; building Next.js on 1 GB tends to run out of memory), 30 GB gp3 root
-    volume, `key_name = var.key_name`, `user_data` that installs Docker, the
-    Compose plugin, and `git`. Optionally attach the existing
-    `aws_iam_instance_profile.backend`; the app needs no AWS access until S3.
-  - `aws_eip.app` (optional) so the address survives stop/start.
-- [ ] `network.tf`: point `from_backend` at `aws_security_group.app.id` instead
-      of the variable, so RDS accepts only the instance.
-- [ ] `variables.tf`: `instance_type`, `ssh_cidr_blocks`, `key_name`.
-- [ ] `outputs.tf`: `app_public_ip`.
-- [ ] `terraform validate`, `terraform plan`, then `apply`.
+Written 2026-11-19 as Terragrunt units (`infra/README.md`); `terraform validate`,
+`terraform fmt`, and `terragrunt hcl validate` pass. Not planned or applied yet.
+
+- [x] `modules/app_security_group` (unit `app-sg`): port 80 from anywhere;
+      port 22 only from `ssh_cidr_blocks` (empty by default; `0.0.0.0/0` rejected).
+- [x] `modules/app` (unit `app`): Amazon Linux 2023 (SSM parameter, later AMI
+      releases ignored), `t3.small`, 30 GB encrypted gp3, IMDSv2 required (hop
+      limit 2 for the API container), the backend instance profile, `user_data`
+      that installs Docker, git, and pinned, checksum-verified Compose and Buildx
+      plugins; optional `aws_eip.app`; optional Session Manager policy so SSH can
+      stay closed.
+- [x] RDS accepts only the app security group: the `data` unit passes the
+      `app-sg` output as `backend_security_group_id` (no change to `network.tf`).
+- [x] Variables: `instance_type`, `root_volume_gb`, `key_name`, `create_eip`,
+      `enable_ssm`, `ssh_cidr_blocks`.
+- [x] Outputs: `app_public_ip`, `app_url`, `instance_id`.
+- [ ] Move the existing state into `live/dev/data` (`infra/README.md`
+      "Moving the existing state"), then `terragrunt run --all -- plan` and `apply`.
 
 ### 4.3 Deploying (no new scripts)
 
@@ -162,7 +167,7 @@ On the instance, over SSH:
 
 1. `git clone` the repository and `git checkout sunny` (or the merged branch).
 2. Create `.env` from `.env.example`: fill in the `RDS_*` values (host from
-   `terraform output -raw db_address`; database, user, and password from the
+   `terragrunt output -raw db_address` in `infra/live/dev/data`; database, user, and password from the
    Secrets Manager secret, §1.1), a random `JWT_SECRET`, and the Google key.
    Run `chmod 600 .env`.
 3. `./scripts/dev.sh rds` (migrations, seeds, API), then
@@ -191,7 +196,7 @@ seconds.
       7 days at a time.
 - [ ] Public IPv4 addresses, including Elastic IPs, are billed hourly; release
       the Elastic IP when the project ends.
-- [ ] `terraform destroy` after grading. `skip_final_snapshot = true`, so take a
+- [ ] `terragrunt run --all -- destroy` after grading. `skip_final_snapshot = true`, so take a
       manual snapshot first if the data should be kept.
 
 ---
