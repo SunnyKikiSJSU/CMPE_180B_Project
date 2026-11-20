@@ -26,12 +26,15 @@ Go API for the Book Metaverse Portal.
 
 ## Endpoints
 
-Implemented (Phases 2-4): `/`, `/healthz`, `/readyz` (database ping, `503`
+Implemented (Phases 2-5): `/`, `/healthz`, `/readyz` (database ping, `503`
 when PostgreSQL is unreachable), `POST /api/auth/register`, `POST /api/auth/login`,
 `POST /api/auth/logout`, `GET /api/auth/me`, `GET|PATCH|DELETE /api/users/me`,
 `PUT /api/users/me/password`, `GET|POST /api/books`, `GET|PATCH /api/books/{bookId}`,
-`GET /api/authors`, `GET /api/authors/{authorId}`, `GET /api/categories`, and
-`GET /api/categories/{categoryId}`. Every other route in `docs/api/openapi.yaml` is
+`GET /api/authors`, `GET /api/authors/{authorId}`, `GET /api/categories`,
+`GET /api/categories/{categoryId}`, `/api/shelves` and `/api/shelves/{shelfId}`
+(list, create, rename, delete), `/api/shelves/{shelfId}/books` (list, add, move,
+remove), `/api/reading-progress` (list, get, update, delete), and
+`GET /api/reading-history`. Every other route in `docs/api/openapi.yaml` is
 registered with its auth requirement and returns `501 NOT_IMPLEMENTED` until its
 phase is built. Unknown routes return `404 NOT_FOUND`.
 
@@ -58,6 +61,19 @@ Catalog notes:
 - `POST /api/books` creates `source = user` books; author and category names
   are trimmed and de-duplicated case-insensitively (at most 20 each).
   A duplicate ISBN-13 is `409`. `PATCH` on a `source = google` book is `403`.
+
+Shelves and progress notes:
+
+- Status and progress writes call `fn_move_book_to_shelf` or
+  `fn_update_reading_progress` inside one transaction (they lock, validate,
+  keep one status shelf per book, and write history). A serialization failure
+  or deadlock is retried once; a stale `version` (`BM001`) is `409 STALE_VERSION`
+  and never retried.
+- Another user's shelf or progress is `404`, never `403`.
+- Custom shelves are tags (at most 50, names unique per user); status shelves
+  cannot be renamed or deleted (`403`). Removing a book from a status shelf also
+  removes its progress; history is append-only.
+- `percentComplete` is accepted only for books without a page count.
 
 ## Configuration
 

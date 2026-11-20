@@ -40,13 +40,14 @@ type Book struct {
 
 // ReadingProgress is the caller's progress on a book (myProgress).
 type ReadingProgress struct {
-	BookID          uuid.UUID `json:"bookId"`
-	Status          string    `json:"status"`
-	CurrentPage     int32     `json:"currentPage"`
-	TotalPages      int32     `json:"totalPages"`
-	PercentComplete float64   `json:"percentComplete"`
-	Version         int32     `json:"version"`
-	UpdatedAt       time.Time `json:"updatedAt"`
+	BookID          uuid.UUID    `json:"bookId"`
+	Status          string       `json:"status"`
+	CurrentPage     int32        `json:"currentPage"`
+	TotalPages      int32        `json:"totalPages"`
+	PercentComplete float64      `json:"percentComplete"`
+	Version         int32        `json:"version"`
+	UpdatedAt       time.Time    `json:"updatedAt"`
+	Book            *BookSummary `json:"book,omitempty"`
 }
 
 // Author and Category are list rows; detail responses add Books.

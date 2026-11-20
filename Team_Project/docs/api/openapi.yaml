@@ -882,6 +882,7 @@ paths:
       tags: [Shelves]
       operationId: renameShelf
       summary: Rename a custom shelf
+      description: Status shelves cannot be renamed (403).
       security:
         - cookieAuth: []
         - bearerAuth: []
@@ -908,6 +909,8 @@ paths:
           $ref: "#/components/responses/ValidationError"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
@@ -995,6 +998,11 @@ paths:
       tags: [Shelves]
       operationId: moveShelfBook
       summary: Move a book to another shelf
+      description: |
+        The book must be on the source shelf (404 otherwise). Leaving a custom
+        shelf removes that tag. A book is on at most one status shelf; moving to
+        a status shelf sets the reading status, moving to a custom shelf adds a
+        tag and keeps the status.
       security:
         - cookieAuth: []
         - bearerAuth: []
@@ -1026,6 +1034,11 @@ paths:
       tags: [Shelves]
       operationId: removeShelfBook
       summary: Remove a book from one shelf
+      description: |
+        From a custom shelf this removes only that tag. From a status shelf it
+        also removes the reading progress (as DELETE /api/reading-progress/{bookId}
+        does), so progress never claims a status without its shelf. History is
+        append-only and kept.
       security:
         - cookieAuth: []
         - bearerAuth: []
@@ -1092,7 +1105,12 @@ paths:
       tags: [Progress]
       operationId: updateReadingProgress
       summary: Partially update progress
-      description: Server recomputes percent and completion; reaches the last page => completed.
+      description: |
+        Server recomputes percent and completion; reaching the last page sets
+        completed and moves the book to the Finished shelf. percentComplete is
+        accepted only for books without a page count (totalPages 0); otherwise
+        it is a 400 on percentComplete. At least one of currentPage,
+        percentComplete, or status is required.
       security:
         - cookieAuth: []
         - bearerAuth: []

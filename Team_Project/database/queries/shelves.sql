@@ -152,7 +152,11 @@ LEFT JOIN reading_progress rp
    AND rp.book_id = b.book_id
 WHERE sh.shelf_id = sqlc.arg('shelf_id')
   AND sh.user_id = sqlc.arg('user_id')
-ORDER BY usi.added_at DESC, b.title
+-- sort: 'recent' (default, newest added first) or 'title'.
+ORDER BY
+    CASE WHEN sqlc.narg('sort')::text = 'title' THEN b.title END ASC,
+    usi.added_at DESC,
+    b.title
 LIMIT sqlc.arg('limit')::int
 OFFSET sqlc.arg('offset')::int;
 
@@ -176,3 +180,14 @@ WHERE usi.shelf_id = s.shelf_id
   AND usi.shelf_id = sqlc.arg('shelf_id')
   AND usi.book_id = sqlc.arg('book_id')
   AND s.user_id = sqlc.arg('user_id');
+
+-- Membership check for moves and removals, scoped to the shelf's owner.
+-- name: IsBookOnShelf :one
+SELECT EXISTS (
+    SELECT 1
+    FROM user_shelf_items usi
+    JOIN shelves s ON s.shelf_id = usi.shelf_id
+    WHERE usi.shelf_id = sqlc.arg('shelf_id')
+      AND usi.book_id = sqlc.arg('book_id')
+      AND s.user_id = sqlc.arg('user_id')
+) AS on_shelf;

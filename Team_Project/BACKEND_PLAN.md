@@ -1743,15 +1743,28 @@ and then shelved through the existing shelf endpoint; Google failures return
 
 ### Phase 5 — Shelves, progress, and history
 
-- [ ] Shelf list/create/rename/delete.
-- [ ] Shelf books list and add/move/remove.
-- [ ] `fn_move_book_to_shelf` and `fn_update_reading_progress`.
-- [ ] Progress list/get/update/delete and history list.
-- [ ] Optimistic version handling and retry helper.
-- [ ] Transaction commit and rollback evidence (`docs/evidence/transactions.md`).
+- [x] Shelf list/create/rename/delete.
+- [x] Shelf books list and add/move/remove.
+- [x] `fn_move_book_to_shelf` and `fn_update_reading_progress`.
+- [x] Progress list/get/update/delete and history list.
+- [x] Optimistic version handling and retry helper.
+- [x] Transaction commit and rollback evidence (`docs/evidence/transactions.md`).
 
 **Exit:** Moving a book always updates shelf state, progress, and history
 consistently; invalid page counts are rejected.
+
+Done 2026-11-19 (branch `feat/shelves-progress-phase5`). Every write runs
+`fn_move_book_to_shelf` or `fn_update_reading_progress` in one transaction,
+retried once on `40001`/`40P01` and never on `BM001`. Integration tests cover
+moves, completion, rollback of rejected updates, ownership (`404`), and two
+concurrent same-version updates (one `200`, one `409`); SQL evidence is in
+`docs/evidence/transactions.md`. Query changes: `ListShelfBooks` honors
+`sort=recent|title` (it ignored `sort`), new `IsBookOnShelf` (owner-scoped
+membership check for moves and removals), and new `SetProgressPercent`
+(client percentage for books without a page count, which
+`fn_update_reading_progress` cannot take). Decisions recorded in
+`openapi.yaml`: removing a book from a status shelf also removes its progress;
+renaming a status shelf is `403`.
 
 ### Phase 6 — Reviews, ratings, and summaries
 

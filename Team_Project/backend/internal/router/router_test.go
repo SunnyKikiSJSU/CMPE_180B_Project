@@ -114,6 +114,28 @@ func (f *fakeCatalog) Category(_ context.Context, id uuid.UUID, _ domain.Page) (
 	return domain.Category{ID: id, Name: "C"}, 0, nil
 }
 
+// fakeReading embeds the interface so tests implement only what they call.
+type fakeReading struct {
+	handlers.ReadingService
+	lastUpdate services.ProgressUpdate
+}
+
+func (f *fakeReading) Shelves(context.Context, uuid.UUID) ([]domain.Shelf, error) {
+	return []domain.Shelf{{Name: "Want to read", Type: "want_to_read"}}, nil
+}
+
+func (f *fakeReading) UpdateProgress(_ context.Context, _, bookID uuid.UUID, in services.ProgressUpdate) (domain.ReadingProgress, error) {
+	f.lastUpdate = in
+	return domain.ReadingProgress{BookID: bookID, Status: "reading"}, nil
+}
+
+func (f *fakeReading) History(_ context.Context, _ uuid.UUID, _ *uuid.UUID, limit int) ([]domain.HistoryEvent, error) {
+	if limit < 1 || limit > 100 {
+		return nil, domain.Validation("limit", "bad")
+	}
+	return []domain.HistoryEvent{}, nil
+}
+
 type fakePinger struct{ err error }
 
 func (f fakePinger) Ping(context.Context) error { return f.err }
@@ -124,11 +146,12 @@ type harness struct {
 	users   *fakeUsers
 	auth    *fakeAuth
 	catalog *fakeCatalog
+	reading *fakeReading
 }
 
 func newHarness(dbErr error) harness {
 	tokens := auth.NewTokens([]byte("router-test-secret-0123456789abcdef"))
-	fa, fu, fc := &fakeAuth{}, &fakeUsers{}, &fakeCatalog{}
+	fa, fu, fc, fr := &fakeAuth{}, &fakeUsers{}, &fakeCatalog{}, &fakeReading{}
 	authHandler := handlers.Auth{Service: fa, Tokens: tokens}
 	return harness{
 		handler: New(Deps{
@@ -136,9 +159,10 @@ func newHarness(dbErr error) harness {
 			Auth:    authHandler,
 			Users:   handlers.Users{Service: fu, Auth: authHandler},
 			Catalog: handlers.Catalog{Service: fc},
+			Reading: handlers.Reading{Service: fr},
 			Authn:   middleware.Authenticator{Tokens: tokens},
 		}),
-		tokens: tokens, users: fu, auth: fa, catalog: fc,
+		tokens: tokens, users: fu, auth: fa, catalog: fc, reading: fr,
 	}
 }
 
@@ -302,7 +326,7 @@ func TestSkeletonAndUnknownRoutes(t *testing.T) {
 	if rec := h.do("GET", "/api/external/books", "", nil); rec.Code != 501 || errorCode(t, rec) != "NOT_IMPLEMENTED" {
 		t.Fatalf("public stub: %d", rec.Code)
 	}
-	if rec := h.do("GET", "/api/shelves", "", h.bearer()); rec.Code != 501 {
+	if rec := h.do("GET", "/api/users/me/reviews", "", h.bearer()); rec.Code != 501 {
 		t.Fatalf("protected stub: %d", rec.Code)
 	}
 	for _, route := range [][2]string{{"GET", "/api/admin"}, {"GET", "/debug/pprof"}, {"DELETE", "/api/books"}} {
@@ -376,5 +400,39 @@ func TestCatalogRoutes(t *testing.T) {
 	}
 	if rec := h.do("GET", "/api/authors?pageSize=500", "", nil); rec.Code != 400 {
 		t.Fatalf("authors pageSize: %d", rec.Code)
+	}
+}
+
+func TestReadingRoutes(t *testing.T) {
+	h := newHarness(nil)
+	for _, route := range [][2]string{
+		{"GET", "/api/shelves"}, {"POST", "/api/shelves"}, {"GET", "/api/shelves/" + uuid.NewString() + "/books"},
+		{"PATCH", "/api/reading-progress/" + uuid.NewString()}, {"GET", "/api/reading-history"},
+	} {
+		if rec := h.do(route[0], route[1], "{}", nil); rec.Code != 401 {
+			t.Errorf("anonymous %s %s: %d", route[0], route[1], rec.Code)
+		}
+	}
+	if rec := h.do("GET", "/api/shelves", "", h.bearer()); rec.Code != 200 || rec.Header().Get("Cache-Control") != "no-store" || !strings.HasPrefix(rec.Body.String(), "[") {
+		t.Fatalf("shelves: %d %s", rec.Code, rec.Body.String())
+	}
+	book := uuid.NewString()
+	rec := h.do("PATCH", "/api/reading-progress/"+book, `{"currentPage":42,"version":3}`, h.bearer())
+	if rec.Code != 200 || h.reading.lastUpdate.CurrentPage == nil || *h.reading.lastUpdate.CurrentPage != 42 || *h.reading.lastUpdate.Version != 3 {
+		t.Fatalf("progress: %d %+v", rec.Code, h.reading.lastUpdate)
+	}
+	if rec := h.do("PATCH", "/api/reading-progress/"+book, `{"currentPage":"ten"}`, h.bearer()); rec.Code != 400 {
+		t.Fatalf("wrong type: %d", rec.Code)
+	}
+	if rec := h.do("PATCH", "/api/reading-progress/not-a-uuid", `{"currentPage":1}`, h.bearer()); rec.Code != 404 {
+		t.Fatalf("malformed book id: %d", rec.Code)
+	}
+	if rec := h.do("POST", "/api/shelves/"+uuid.NewString()+"/books", `{}`, h.bearer()); rec.Code != 400 || !strings.Contains(rec.Body.String(), `"field":"bookId"`) {
+		t.Fatalf("missing bookId: %d %s", rec.Code, rec.Body.String())
+	}
+	for _, q := range []string{"limit=0", "limit=x", "limit=101", "bookId=nope"} {
+		if rec := h.do("GET", "/api/reading-history?"+q, "", h.bearer()); rec.Code != 400 {
+			t.Errorf("history %s: %d", q, rec.Code)
+		}
 	}
 }

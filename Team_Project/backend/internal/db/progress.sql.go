@@ -276,3 +276,30 @@ func (q *Queries) ListReadingProgress(ctx context.Context, arg ListReadingProgre
 	}
 	return items, nil
 }
+
+const setProgressPercent = `-- name: SetProgressPercent :execrows
+UPDATE reading_progress rp
+SET percent_complete = $1::numeric
+FROM books b
+WHERE b.book_id = rp.book_id
+  AND b.page_count IS NULL
+  AND rp.user_id = $2
+  AND rp.book_id = $3
+`
+
+type SetProgressPercentParams struct {
+	PercentComplete float64
+	UserID          uuid.UUID
+	BookID          uuid.UUID
+}
+
+// A client-supplied percentage is stored only for books without a page
+// count (fn_validate_reading_progress computes it from current_page
+// otherwise). Runs in the same transaction as fn_update_reading_progress.
+func (q *Queries) SetProgressPercent(ctx context.Context, arg SetProgressPercentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setProgressPercent, arg.PercentComplete, arg.UserID, arg.BookID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}

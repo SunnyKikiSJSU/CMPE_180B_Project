@@ -19,6 +19,7 @@ type Deps struct {
 	Auth    handlers.Auth
 	Users   handlers.Users
 	Catalog handlers.Catalog
+	Reading handlers.Reading
 	Authn   middleware.Authenticator
 }
 
@@ -88,19 +89,19 @@ func New(d Deps) http.Handler {
 			priv.Put("/books/{bookId}/review", todo)
 			priv.Patch("/reviews/{reviewId}", todo)
 			priv.Delete("/reviews/{reviewId}", todo)
-			priv.Get("/shelves", todo)
-			priv.Post("/shelves", todo)
-			priv.Patch("/shelves/{shelfId}", todo)
-			priv.Delete("/shelves/{shelfId}", todo)
-			priv.Get("/shelves/{shelfId}/books", todo)
-			priv.Post("/shelves/{shelfId}/books", todo)
-			priv.Patch("/shelves/{shelfId}/books/{bookId}", todo)
-			priv.Delete("/shelves/{shelfId}/books/{bookId}", todo)
-			priv.Get("/reading-progress", todo)
-			priv.Get("/reading-progress/{bookId}", todo)
-			priv.Patch("/reading-progress/{bookId}", todo)
-			priv.Delete("/reading-progress/{bookId}", todo)
-			priv.Get("/reading-history", todo)
+			priv.Get("/shelves", d.Reading.ListShelves)
+			priv.Post("/shelves", d.Reading.CreateShelf)
+			priv.Patch("/shelves/{shelfId}", d.Reading.RenameShelf)
+			priv.Delete("/shelves/{shelfId}", d.Reading.DeleteShelf)
+			priv.Get("/shelves/{shelfId}/books", d.Reading.ShelfBooks)
+			priv.Post("/shelves/{shelfId}/books", d.Reading.AddBook)
+			priv.Patch("/shelves/{shelfId}/books/{bookId}", d.Reading.MoveBook)
+			priv.Delete("/shelves/{shelfId}/books/{bookId}", d.Reading.RemoveBook)
+			priv.Get("/reading-progress", d.Reading.ListProgress)
+			priv.Get("/reading-progress/{bookId}", d.Reading.GetProgress)
+			priv.Patch("/reading-progress/{bookId}", d.Reading.UpdateProgress)
+			priv.Delete("/reading-progress/{bookId}", d.Reading.DeleteProgress)
+			priv.Get("/reading-history", d.Reading.History)
 			priv.Get("/reports/reading-history", todo)
 			priv.Get("/reports/user-stats", todo)
 			priv.Get("/reports/recommendations", todo)

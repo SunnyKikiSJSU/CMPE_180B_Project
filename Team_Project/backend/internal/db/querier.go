@@ -71,6 +71,8 @@ type Querier interface {
 	// ISBN-13 collision with a different row raises 23505 on books_isbn13_unique;
 	// the service then reruns GetBookByExternalID and returns that row.
 	ImportGoogleBook(ctx context.Context, arg ImportGoogleBookParams) (ImportGoogleBookRow, error)
+	// Membership check for moves and removals, scoped to the shelf's owner.
+	IsBookOnShelf(ctx context.Context, arg IsBookOnShelfParams) (bool, error)
 	// Author listing, detail, and author-scoped book listing.
 	// LIKE wildcards in user text are escaped so they match literally.
 	ListAuthors(ctx context.Context, arg ListAuthorsParams) ([]ListAuthorsRow, error)
@@ -94,6 +96,7 @@ type Querier interface {
 	// which are called directly with pgx because they return a composite row and
 	// enforce locking/validation inside PostgreSQL.
 	ListReadingProgress(ctx context.Context, arg ListReadingProgressParams) ([]ListReadingProgressRow, error)
+	// sort: 'recent' (default, newest added first) or 'title'.
 	ListShelfBooks(ctx context.Context, arg ListShelfBooksParams) ([]ListShelfBooksRow, error)
 	// Shelf CRUD and shelf-book membership queries.
 	// Status shelves are created only by fn_create_user_defaults; user-created
@@ -131,6 +134,10 @@ type Querier interface {
 	// User text is used as a substring pattern, so LIKE wildcards are escaped:
 	// searching for `100%` or `a_b` matches those characters literally.
 	SearchBooks(ctx context.Context, arg SearchBooksParams) ([]SearchBooksRow, error)
+	// A client-supplied percentage is stored only for books without a page
+	// count (fn_validate_reading_progress computes it from current_page
+	// otherwise). Runs in the same transaction as fn_update_reading_progress.
+	SetProgressPercent(ctx context.Context, arg SetProgressPercentParams) (int64, error)
 	TopRatedBooks(ctx context.Context, arg TopRatedBooksParams) ([]TopRatedBooksRow, error)
 	// Google-imported rows are read-only here: their content belongs to Google and
 	// is shown with Google attribution. The service returns 403 for them; the

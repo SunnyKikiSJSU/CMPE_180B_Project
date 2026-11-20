@@ -153,6 +153,31 @@ func (q *Queries) GetShelf(ctx context.Context, arg GetShelfParams) (GetShelfRow
 	return i, err
 }
 
+const isBookOnShelf = `-- name: IsBookOnShelf :one
+SELECT EXISTS (
+    SELECT 1
+    FROM user_shelf_items usi
+    JOIN shelves s ON s.shelf_id = usi.shelf_id
+    WHERE usi.shelf_id = $1
+      AND usi.book_id = $2
+      AND s.user_id = $3
+) AS on_shelf
+`
+
+type IsBookOnShelfParams struct {
+	ShelfID uuid.UUID
+	BookID  uuid.UUID
+	UserID  uuid.UUID
+}
+
+// Membership check for moves and removals, scoped to the shelf's owner.
+func (q *Queries) IsBookOnShelf(ctx context.Context, arg IsBookOnShelfParams) (bool, error) {
+	row := q.db.QueryRow(ctx, isBookOnShelf, arg.ShelfID, arg.BookID, arg.UserID)
+	var on_shelf bool
+	err := row.Scan(&on_shelf)
+	return on_shelf, err
+}
+
 const listShelfBooks = `-- name: ListShelfBooks :many
 SELECT
     b.book_id,
@@ -228,14 +253,18 @@ LEFT JOIN reading_progress rp
    AND rp.book_id = b.book_id
 WHERE sh.shelf_id = $1
   AND sh.user_id = $2
-ORDER BY usi.added_at DESC, b.title
-LIMIT $4::int
-OFFSET $3::int
+ORDER BY
+    CASE WHEN $3::text = 'title' THEN b.title END ASC,
+    usi.added_at DESC,
+    b.title
+LIMIT $5::int
+OFFSET $4::int
 `
 
 type ListShelfBooksParams struct {
 	ShelfID uuid.UUID
 	UserID  uuid.UUID
+	Sort    pgtype.Text
 	Offset  int32
 	Limit   int32
 }
@@ -270,10 +299,12 @@ type ListShelfBooksRow struct {
 	TotalCount             int32
 }
 
+// sort: 'recent' (default, newest added first) or 'title'.
 func (q *Queries) ListShelfBooks(ctx context.Context, arg ListShelfBooksParams) ([]ListShelfBooksRow, error) {
 	rows, err := q.db.Query(ctx, listShelfBooks,
 		arg.ShelfID,
 		arg.UserID,
+		arg.Sort,
 		arg.Offset,
 		arg.Limit,
 	)
