@@ -70,6 +70,50 @@ func (f *fakeUsers) ChangePassword(_ context.Context, _ uuid.UUID, current, _ st
 
 func (f *fakeUsers) Delete(context.Context, uuid.UUID) error { f.deleted = true; return nil }
 
+type fakeCatalog struct {
+	lastSearch services.SearchInput
+	lastUser   *uuid.UUID
+}
+
+var testBook = domain.Book{ID: uuid.MustParse("22222222-2222-4222-8222-222222222222"), Title: "A Book", Author: "Unknown author", Authors: []domain.Ref{}, Categories: []domain.Ref{}, Source: "user"}
+
+func (f *fakeCatalog) Search(_ context.Context, in services.SearchInput) ([]domain.Book, int64, error) {
+	f.lastSearch = in
+	return []domain.Book{testBook}, 41, nil
+}
+
+func (f *fakeCatalog) Get(_ context.Context, id uuid.UUID, userID *uuid.UUID) (domain.Book, error) {
+	f.lastUser = userID
+	if id != testBook.ID {
+		return domain.Book{}, domain.NotFound("Book not found.")
+	}
+	return testBook, nil
+}
+
+func (f *fakeCatalog) Create(_ context.Context, in services.BookFields) (domain.Book, error) {
+	return testBook, nil
+}
+
+func (f *fakeCatalog) Update(_ context.Context, id uuid.UUID, _ services.BookFields) (domain.Book, error) {
+	return testBook, nil
+}
+
+func (f *fakeCatalog) ListAuthors(context.Context, string, domain.Page) ([]domain.Author, int64, error) {
+	return []domain.Author{}, 0, nil
+}
+
+func (f *fakeCatalog) Author(_ context.Context, id uuid.UUID, _ domain.Page) (domain.Author, int64, error) {
+	return domain.Author{ID: id, Name: "A"}, 0, nil
+}
+
+func (f *fakeCatalog) ListCategories(context.Context, string, domain.Page) ([]domain.Category, int64, error) {
+	return []domain.Category{}, 0, nil
+}
+
+func (f *fakeCatalog) Category(_ context.Context, id uuid.UUID, _ domain.Page) (domain.Category, int64, error) {
+	return domain.Category{ID: id, Name: "C"}, 0, nil
+}
+
 type fakePinger struct{ err error }
 
 func (f fakePinger) Ping(context.Context) error { return f.err }
@@ -79,20 +123,22 @@ type harness struct {
 	tokens  *auth.Tokens
 	users   *fakeUsers
 	auth    *fakeAuth
+	catalog *fakeCatalog
 }
 
 func newHarness(dbErr error) harness {
 	tokens := auth.NewTokens([]byte("router-test-secret-0123456789abcdef"))
-	fa, fu := &fakeAuth{}, &fakeUsers{}
+	fa, fu, fc := &fakeAuth{}, &fakeUsers{}, &fakeCatalog{}
 	authHandler := handlers.Auth{Service: fa, Tokens: tokens}
 	return harness{
 		handler: New(Deps{
-			Health: handlers.Health{DB: fakePinger{err: dbErr}},
-			Auth:   authHandler,
-			Users:  handlers.Users{Service: fu, Auth: authHandler},
-			Authn:  middleware.Authenticator{Tokens: tokens},
+			Health:  handlers.Health{DB: fakePinger{err: dbErr}},
+			Auth:    authHandler,
+			Users:   handlers.Users{Service: fu, Auth: authHandler},
+			Catalog: handlers.Catalog{Service: fc},
+			Authn:   middleware.Authenticator{Tokens: tokens},
 		}),
-		tokens: tokens, users: fu, auth: fa,
+		tokens: tokens, users: fu, auth: fa, catalog: fc,
 	}
 }
 
@@ -253,7 +299,7 @@ func TestUsersMe(t *testing.T) {
 
 func TestSkeletonAndUnknownRoutes(t *testing.T) {
 	h := newHarness(nil)
-	if rec := h.do("GET", "/api/books", "", nil); rec.Code != 501 || errorCode(t, rec) != "NOT_IMPLEMENTED" {
+	if rec := h.do("GET", "/api/external/books", "", nil); rec.Code != 501 || errorCode(t, rec) != "NOT_IMPLEMENTED" {
 		t.Fatalf("public stub: %d", rec.Code)
 	}
 	if rec := h.do("GET", "/api/shelves", "", h.bearer()); rec.Code != 501 {
@@ -275,5 +321,60 @@ func TestRequestIDPropagation(t *testing.T) {
 	rec = h.do("GET", "/healthz", "", http.Header{"X-Request-Id": {"bad id\n<script>"}})
 	if id := rec.Header().Get("X-Request-ID"); id == "" || strings.ContainsAny(id, " <\n") {
 		t.Fatalf("unsafe ID not replaced: %q", id)
+	}
+}
+
+func TestCatalogRoutes(t *testing.T) {
+	h := newHarness(nil)
+
+	rec := h.do("GET", "/api/books?q=%20night%20&sort=title&page=3&pageSize=10&authorId=11111111-1111-4111-8111-111111111111", "", nil)
+	if rec.Code != 200 || rec.Header().Get("X-Total-Count") != "41" || rec.Header().Get("X-Page") != "3" || rec.Header().Get("X-Page-Size") != "10" {
+		t.Fatalf("search: %d %v", rec.Code, rec.Header())
+	}
+	if !strings.HasPrefix(rec.Body.String(), "[") {
+		t.Fatalf("list must be a raw array: %s", rec.Body.String())
+	}
+	if in := h.catalog.lastSearch; in.Q != " night " || in.Sort != "title" || in.Page.Number != 3 || in.Page.Size != 10 || in.AuthorID == nil {
+		t.Fatalf("search input: %+v", in)
+	}
+	for _, query := range []string{"page=0", "page=x", "pageSize=101", "pageSize=0", "authorId=nope", "categoryId=1"} {
+		if rec := h.do("GET", "/api/books?"+query, "", nil); rec.Code != 400 || errorCode(t, rec) != "VALIDATION_ERROR" {
+			t.Errorf("%s: %d", query, rec.Code)
+		}
+	}
+
+	// Detail: anonymous gets no personal context; a session adds it and no-store.
+	if rec := h.do("GET", "/api/books/"+testBook.ID.String(), "", nil); rec.Code != 200 || h.catalog.lastUser != nil || rec.Header().Get("Cache-Control") == "no-store" {
+		t.Fatalf("anonymous detail: %d %v", rec.Code, h.catalog.lastUser)
+	}
+	if rec := h.do("GET", "/api/books/"+testBook.ID.String(), "", h.bearer()); rec.Code != 200 || h.catalog.lastUser == nil || rec.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("signed-in detail: %d", rec.Code)
+	}
+	if rec := h.do("GET", "/api/books/not-a-uuid", "", nil); rec.Code != 404 || errorCode(t, rec) != "NOT_FOUND" {
+		t.Fatalf("malformed id: %d", rec.Code)
+	}
+	if rec := h.do("GET", "/api/books/"+uuid.NewString(), "", nil); rec.Code != 404 {
+		t.Fatalf("unknown id: %d", rec.Code)
+	}
+
+	// Writes need a session; PATCH accepts only BookUpdate fields.
+	if rec := h.do("POST", "/api/books", `{"title":"x"}`, nil); rec.Code != 401 {
+		t.Fatalf("anonymous create: %d", rec.Code)
+	}
+	if rec := h.do("POST", "/api/books", `{"title":"x","authors":["A"]}`, h.bearer()); rec.Code != 201 {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := h.do("PATCH", "/api/books/"+testBook.ID.String(), `{"authors":["A"]}`, h.bearer()); rec.Code != 400 || !strings.Contains(rec.Body.String(), `"field":"authors"`) {
+		t.Fatalf("PATCH authors: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Detail responses always carry "books" as an array.
+	for _, path := range []string{"/api/authors/" + uuid.NewString(), "/api/categories/" + uuid.NewString()} {
+		if rec := h.do("GET", path, "", nil); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"books":[]`) {
+			t.Errorf("%s: %d %s", path, rec.Code, rec.Body.String())
+		}
+	}
+	if rec := h.do("GET", "/api/authors?pageSize=500", "", nil); rec.Code != 400 {
+		t.Fatalf("authors pageSize: %d", rec.Code)
 	}
 }

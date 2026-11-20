@@ -65,10 +65,11 @@ func run() error {
 	server := &http.Server{
 		Addr: ":" + strconv.Itoa(cfg.Port),
 		Handler: router.New(router.Deps{
-			Health: handlers.Health{DB: pool},
-			Auth:   authHandler,
-			Users:  handlers.Users{Service: services.NewUsers(users), Auth: authHandler},
-			Authn:  middleware.Authenticator{Tokens: tokens},
+			Health:  handlers.Health{DB: pool},
+			Auth:    authHandler,
+			Users:   handlers.Users{Service: services.NewUsers(users), Auth: authHandler},
+			Catalog: handlers.Catalog{Service: services.NewCatalog(repository.NewCatalog(pool))},
+			Authn:   middleware.Authenticator{Tokens: tokens},
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
