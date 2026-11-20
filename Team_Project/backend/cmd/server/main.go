@@ -69,6 +69,7 @@ func run() error {
 			Auth:    authHandler,
 			Users:   handlers.Users{Service: services.NewUsers(users), Auth: authHandler},
 			Catalog: handlers.Catalog{Service: services.NewCatalog(repository.NewCatalog(pool))},
+			Reading: handlers.Reading{Service: services.NewReading(repository.NewReading(pool))},
 			Authn:   middleware.Authenticator{Tokens: tokens},
 		}),
 		ReadHeaderTimeout: 5 * time.Second,

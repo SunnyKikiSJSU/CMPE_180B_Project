@@ -107,3 +107,15 @@ WHERE rh.user_id = sqlc.arg('user_id')
   AND (p.book_id IS NULL OR rh.book_id = p.book_id)
 ORDER BY rh.created_at DESC
 LIMIT sqlc.arg('limit')::int;
+
+-- A client-supplied percentage is stored only for books without a page
+-- count (fn_validate_reading_progress computes it from current_page
+-- otherwise). Runs in the same transaction as fn_update_reading_progress.
+-- name: SetProgressPercent :execrows
+UPDATE reading_progress rp
+SET percent_complete = sqlc.arg('percent_complete')::numeric
+FROM books b
+WHERE b.book_id = rp.book_id
+  AND b.page_count IS NULL
+  AND rp.user_id = sqlc.arg('user_id')
+  AND rp.book_id = sqlc.arg('book_id');

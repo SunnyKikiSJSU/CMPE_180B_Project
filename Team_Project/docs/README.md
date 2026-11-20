@@ -14,4 +14,6 @@ Current and planned sections:
   [`../ER_diagram.md`](../ER_diagram.md).
 - `runbooks/` for local, WSL, Docker, and AWS procedures.
 - `evidence/` for validation, concurrency, and performance results.
+  - [`transactions.md`](evidence/transactions.md): shelf move and progress
+    completion, committed and rolled back (Phase 5).
 - `architecture/` for architecture diagrams and design decisions.

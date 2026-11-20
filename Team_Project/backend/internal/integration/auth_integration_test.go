@@ -49,6 +49,7 @@ func setup(t *testing.T) (http.Handler, *pgxpool.Pool) {
 		Auth:    authHandler,
 		Users:   handlers.Users{Service: services.NewUsers(users), Auth: authHandler},
 		Catalog: handlers.Catalog{Service: services.NewCatalog(repository.NewCatalog(pool))},
+		Reading: handlers.Reading{Service: services.NewReading(repository.NewReading(pool))},
 		Authn:   middleware.Authenticator{Tokens: tokens},
 	}), pool
 }
