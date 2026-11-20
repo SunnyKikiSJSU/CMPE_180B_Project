@@ -16,8 +16,8 @@ type Querier interface {
 	// The service must verify shelf ownership. For status shelves, prefer
 	// fn_move_book_to_shelf so progress and history stay in sync.
 	AddShelfItem(ctx context.Context, arg AddShelfItemParams) error
-	AuthorRankings(ctx context.Context, limit int32) ([]AuthorRankingsRow, error)
-	CategoryRankings(ctx context.Context, limit int32) ([]CategoryRankingsRow, error)
+	AuthorRankings(ctx context.Context, arg AuthorRankingsParams) ([]AuthorRankingsRow, error)
+	CategoryRankings(ctx context.Context, arg CategoryRankingsParams) ([]CategoryRankingsRow, error)
 	ClearBookAuthors(ctx context.Context, bookID uuid.UUID) error
 	ClearBookCategories(ctx context.Context, bookID uuid.UUID) error
 	CountCustomShelves(ctx context.Context, userID uuid.UUID) (int32, error)
@@ -105,17 +105,33 @@ type Querier interface {
 	PopularBooks(ctx context.Context, arg PopularBooksParams) ([]PopularBooksRow, error)
 	RatingSummaryByAuthor(ctx context.Context, limit int32) ([]RatingSummaryByAuthorRow, error)
 	RatingSummaryByCategory(ctx context.Context, limit int32) ([]RatingSummaryByCategoryRow, error)
-	// Report queries q03-q10.
+	// Report queries (evidence IDs from BACKEND_PLAN.md §5.4; the API lists them at
+	// GET /api/reports/queries):
+	//   q04 TopRatedBooks, RatingSummaryByCategory, RatingSummaryByAuthor
+	//   q05 PopularBooks
+	//   q06 RecommendedBooks
+	//   q07 UserReadingStats, ReadingReportSummary, FavoriteCategories,
+	//       RecentReadingActivity
+	//   q08 AuthorRankings, CategoryRankings (HAVING applies min_ratings before
+	//       RANK(), so a single 5-star rating cannot top the leaderboard)
+	//   q09 ReviewActivity
+	// (q01-q03 and q10 are in books.sql, shelves.sql, and ratings.sql.)
 	//
 	// The reading-history report matches the existing frontend ReadingReport type.
+	// Pages read: a completed book counts books.page_count; a reading or paused
+	// book counts reading_progress.current_page; each user/book pair has one
+	// progress row, so no book is counted twice.
+	// A "liked" book is one the user completed or rated 4 or 5.
+	// Time windows cover whole UTC days: [end_date - days + 1, end_date].
 	// Popularity and recommendations pre-aggregate in CTEs so joining multiple
 	// activity tables does not multiply rows and inflate counts.
 	ReadingReportSummary(ctx context.Context, userID uuid.UUID) (ReadingReportSummaryRow, error)
 	RecentReadingActivity(ctx context.Context, arg RecentReadingActivityParams) ([]RecentReadingActivityRow, error)
+	// Books the user already knows: tracked, shelved, rated, or reviewed.
 	RecommendedBooks(ctx context.Context, arg RecommendedBooksParams) ([]RecommendedBooksRow, error)
 	RemoveShelfItem(ctx context.Context, arg RemoveShelfItemParams) (int64, error)
 	RenameShelf(ctx context.Context, arg RenameShelfParams) (RenameShelfRow, error)
-	ReviewActivity(ctx context.Context, days int32) ([]ReviewActivityRow, error)
+	ReviewActivity(ctx context.Context, arg ReviewActivityParams) ([]ReviewActivityRow, error)
 	// Catalog search, detail, and catalog-write queries.
 	//
 	// Two kinds of search exist:

@@ -1,6 +1,21 @@
--- Report queries q03-q10.
+-- Report queries (evidence IDs from BACKEND_PLAN.md §5.4; the API lists them at
+-- GET /api/reports/queries):
+--   q04 TopRatedBooks, RatingSummaryByCategory, RatingSummaryByAuthor
+--   q05 PopularBooks
+--   q06 RecommendedBooks
+--   q07 UserReadingStats, ReadingReportSummary, FavoriteCategories,
+--       RecentReadingActivity
+--   q08 AuthorRankings, CategoryRankings (HAVING applies min_ratings before
+--       RANK(), so a single 5-star rating cannot top the leaderboard)
+--   q09 ReviewActivity
+-- (q01-q03 and q10 are in books.sql, shelves.sql, and ratings.sql.)
 --
 -- The reading-history report matches the existing frontend ReadingReport type.
+-- Pages read: a completed book counts books.page_count; a reading or paused
+-- book counts reading_progress.current_page; each user/book pair has one
+-- progress row, so no book is counted twice.
+-- A "liked" book is one the user completed or rated 4 or 5.
+-- Time windows cover whole UTC days: [end_date - days + 1, end_date].
 -- Popularity and recommendations pre-aggregate in CTEs so joining multiple
 -- activity tables does not multiply rows and inflate counts.
 
@@ -34,20 +49,27 @@ CROSS JOIN current_pages cp;
 -- name: FavoriteCategories :many
 WITH params AS (
     SELECT sqlc.arg('user_id')::uuid AS user_id
+),
+liked_books AS (
+    SELECT rp.book_id
+    FROM reading_progress rp
+    CROSS JOIN params p
+    WHERE rp.user_id = p.user_id
+      AND rp.status = 'completed'
+    UNION
+    SELECT rt.book_id
+    FROM ratings rt
+    CROSS JOIN params p
+    WHERE rt.user_id = p.user_id
+      AND rt.rating_value >= 4
 )
 SELECT
     c.category_id,
     c.name,
     count(*)::int AS book_count
-FROM reading_progress rp
-JOIN book_categories bc ON bc.book_id = rp.book_id
+FROM liked_books lb
+JOIN book_categories bc ON bc.book_id = lb.book_id
 JOIN categories c ON c.category_id = bc.category_id
-LEFT JOIN ratings rt
-    ON rt.user_id = rp.user_id
-   AND rt.book_id = rp.book_id
-CROSS JOIN params p
-WHERE rp.user_id = p.user_id
-  AND (rp.status = 'completed' OR rt.rating_value >= 4)
 GROUP BY c.category_id, c.name
 ORDER BY book_count DESC, c.name
 LIMIT sqlc.arg('limit')::int;
@@ -91,7 +113,7 @@ in_progress AS (
 rating_stats AS (
     SELECT
         count(*)::int AS ratings_given,
-        coalesce(round(avg(rt.rating_value)::numeric, 2), 0) AS average_rating
+        coalesce(round(avg(rt.rating_value)::numeric, 2), 0)::numeric(3, 2) AS average_rating
     FROM ratings rt
     CROSS JOIN params p
     WHERE rt.user_id = p.user_id
@@ -115,12 +137,19 @@ CROSS JOIN rating_stats rs
 CROSS JOIN review_stats rv;
 
 -- name: PopularBooks :many
-WITH shelf_counts AS (
+WITH window_bounds AS (
+    SELECT
+        (sqlc.arg('end_date')::date - (sqlc.arg('days')::int - 1))::timestamp AT TIME ZONE 'UTC' AS starts_at,
+        (sqlc.arg('end_date')::date + 1)::timestamp AT TIME ZONE 'UTC' AS ends_at
+),
+shelf_counts AS (
     SELECT
         usi.book_id,
         count(*)::int AS shelf_adds
     FROM user_shelf_items usi
-    WHERE usi.added_at >= now() - (sqlc.arg('days')::int * interval '1 day')
+    CROSS JOIN window_bounds w
+    WHERE usi.added_at >= w.starts_at
+      AND usi.added_at < w.ends_at
     GROUP BY usi.book_id
 ),
 rating_counts AS (
@@ -129,7 +158,9 @@ rating_counts AS (
         count(*)::int AS ratings,
         round(avg(rt.rating_value)::numeric, 2) AS average_rating
     FROM ratings rt
-    WHERE rt.created_at >= now() - (sqlc.arg('days')::int * interval '1 day')
+    CROSS JOIN window_bounds w
+    WHERE rt.created_at >= w.starts_at
+      AND rt.created_at < w.ends_at
     GROUP BY rt.book_id
 )
 SELECT
@@ -187,25 +218,49 @@ LIMIT sqlc.arg('limit')::int;
 WITH params AS (
     SELECT sqlc.arg('user_id')::uuid AS user_id
 ),
+liked_books AS (
+    SELECT rp.book_id
+    FROM reading_progress rp
+    CROSS JOIN params p
+    WHERE rp.user_id = p.user_id
+      AND rp.status = 'completed'
+    UNION
+    SELECT rt.book_id
+    FROM ratings rt
+    CROSS JOIN params p
+    WHERE rt.user_id = p.user_id
+      AND rt.rating_value >= 4
+),
 preferred_categories AS (
     SELECT
         bc.category_id,
         count(*)::int AS weight
-    FROM reading_progress rp
-    JOIN book_categories bc ON bc.book_id = rp.book_id
-    LEFT JOIN ratings rt
-        ON rt.user_id = rp.user_id
-       AND rt.book_id = rp.book_id
-    CROSS JOIN params p
-    WHERE rp.user_id = p.user_id
-      AND (rp.status = 'completed' OR rt.rating_value >= 4)
+    FROM liked_books lb
+    JOIN book_categories bc ON bc.book_id = lb.book_id
     GROUP BY bc.category_id
 ),
+-- Books the user already knows: tracked, shelved, rated, or reviewed.
 read_books AS (
     SELECT rp.book_id
     FROM reading_progress rp
     CROSS JOIN params p
     WHERE rp.user_id = p.user_id
+    UNION
+    SELECT usi.book_id
+    FROM user_shelf_items usi
+    JOIN shelves sh ON sh.shelf_id = usi.shelf_id
+    CROSS JOIN params p
+    WHERE sh.user_id = p.user_id
+    UNION
+    SELECT rt.book_id
+    FROM ratings rt
+    CROSS JOIN params p
+    WHERE rt.user_id = p.user_id
+    UNION
+    SELECT rv.book_id
+    FROM reviews rv
+    CROSS JOIN params p
+    WHERE rv.user_id = p.user_id
 ),
 candidates AS (
     SELECT
@@ -249,7 +304,7 @@ SELECT
     a.name,
     count(DISTINCT ba.book_id)::int AS book_count,
     count(rt.rating_id)::int AS rating_count,
-    coalesce(round(avg(rt.rating_value)::numeric, 2), 0) AS average_rating,
+    coalesce(round(avg(rt.rating_value)::numeric, 2), 0)::numeric(3, 2) AS average_rating,
     (
         rank() OVER (
             ORDER BY
@@ -261,6 +316,7 @@ FROM authors a
 LEFT JOIN book_authors ba ON ba.author_id = a.author_id
 LEFT JOIN ratings rt ON rt.book_id = ba.book_id
 GROUP BY a.author_id, a.name
+HAVING count(rt.rating_id) >= sqlc.arg('min_ratings')::int
 ORDER BY ranking, a.name
 LIMIT sqlc.arg('limit')::int;
 
@@ -270,7 +326,7 @@ SELECT
     c.name,
     count(DISTINCT bc.book_id)::int AS book_count,
     count(rt.rating_id)::int AS rating_count,
-    coalesce(round(avg(rt.rating_value)::numeric, 2), 0) AS average_rating,
+    coalesce(round(avg(rt.rating_value)::numeric, 2), 0)::numeric(3, 2) AS average_rating,
     (
         rank() OVER (
             ORDER BY
@@ -282,37 +338,49 @@ FROM categories c
 LEFT JOIN book_categories bc ON bc.category_id = c.category_id
 LEFT JOIN ratings rt ON rt.book_id = bc.book_id
 GROUP BY c.category_id, c.name
+HAVING count(rt.rating_id) >= sqlc.arg('min_ratings')::int
 ORDER BY ranking, c.name
 LIMIT sqlc.arg('limit')::int;
 
 -- name: ReviewActivity :many
 WITH params AS (
-    SELECT sqlc.arg('days')::int AS days
+    SELECT
+        sqlc.arg('end_date')::date AS end_date,
+        sqlc.arg('days')::int AS days
 ),
 days AS (
-    SELECT generate_series(
-        date_trunc('day', now()) - (p.days - 1) * interval '1 day',
-        date_trunc('day', now()),
-        interval '1 day'
-    ) AS day
+    SELECT d::date AS day
     FROM params p
+    CROSS JOIN generate_series(p.end_date - (p.days - 1), p.end_date, interval '1 day') AS d
+),
+window_bounds AS (
+    SELECT
+        min(day)::timestamp AT TIME ZONE 'UTC' AS starts_at,
+        (max(day) + 1)::timestamp AT TIME ZONE 'UTC' AS ends_at
+    FROM days
 ),
 review_counts AS (
     SELECT
-        date_trunc('day', created_at) AS day,
+        (r.created_at AT TIME ZONE 'UTC')::date AS day,
         count(*)::int AS reviews
-    FROM reviews
+    FROM reviews r
+    CROSS JOIN window_bounds w
+    WHERE r.created_at >= w.starts_at
+      AND r.created_at < w.ends_at
     GROUP BY 1
 ),
 rating_counts AS (
     SELECT
-        date_trunc('day', created_at) AS day,
+        (rt.created_at AT TIME ZONE 'UTC')::date AS day,
         count(*)::int AS ratings
-    FROM ratings
+    FROM ratings rt
+    CROSS JOIN window_bounds w
+    WHERE rt.created_at >= w.starts_at
+      AND rt.created_at < w.ends_at
     GROUP BY 1
 )
 SELECT
-    d.day::date AS day,
+    d.day,
     coalesce(rc.reviews, 0)::int AS reviews,
     coalesce(rt.ratings, 0)::int AS ratings
 FROM days d
@@ -325,7 +393,7 @@ SELECT
     c.category_id,
     c.name,
     count(rt.rating_id)::int AS rating_count,
-    coalesce(round(avg(rt.rating_value)::numeric, 2), 0) AS average_rating
+    coalesce(round(avg(rt.rating_value)::numeric, 2), 0)::numeric(3, 2) AS average_rating
 FROM categories c
 JOIN book_categories bc ON bc.category_id = c.category_id
 JOIN ratings rt ON rt.book_id = bc.book_id
@@ -339,7 +407,7 @@ SELECT
     a.author_id,
     a.name,
     count(rt.rating_id)::int AS rating_count,
-    coalesce(round(avg(rt.rating_value)::numeric, 2), 0) AS average_rating
+    coalesce(round(avg(rt.rating_value)::numeric, 2), 0)::numeric(3, 2) AS average_rating
 FROM authors a
 JOIN book_authors ba ON ba.author_id = a.author_id
 JOIN ratings rt ON rt.book_id = ba.book_id

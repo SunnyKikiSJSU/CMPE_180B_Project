@@ -1199,13 +1199,20 @@ paths:
       tags: [Reports]
       operationId: readingReport
       summary: Dashboard reading report
-      description: Matches the existing frontend ReadingReport type.
+      description: |
+        Matches the existing frontend ReadingReport type. Pages read counts
+        page_count for completed books and current_page for reading or paused
+        books. Up to 5 favorite categories (from completed or 4-5 rated books)
+        and the 10 most recent progress rows, all read from one snapshot (q07).
       security:
         - cookieAuth: []
         - bearerAuth: []
       responses:
         "200":
           description: Reading report.
+          headers:
+            X-Query-Id:
+              $ref: "#/components/headers/XQueryId"
           content:
             application/json:
               schema:
@@ -1224,6 +1231,9 @@ paths:
       responses:
         "200":
           description: User statistics.
+          headers:
+            X-Query-Id:
+              $ref: "#/components/headers/XQueryId"
           content:
             application/json:
               schema:
@@ -1236,14 +1246,10 @@ paths:
       tags: [Reports]
       operationId: popularBooksReport
       summary: Popular books in a time window
+      description: Score = 2 x shelf adds + ratings within the window (q05).
       parameters:
-        - name: days
-          in: query
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 365
-            default: 30
+        - $ref: "#/components/parameters/ReportDays"
+        - $ref: "#/components/parameters/ReportEndDate"
         - name: limit
           in: query
           schema:
@@ -1254,6 +1260,9 @@ paths:
       responses:
         "200":
           description: Popular books.
+          headers:
+            X-Query-Id:
+              $ref: "#/components/headers/XQueryId"
           content:
             application/json:
               schema:
@@ -1286,6 +1295,9 @@ paths:
       responses:
         "200":
           description: Top-rated books.
+          headers:
+            X-Query-Id:
+              $ref: "#/components/headers/XQueryId"
           content:
             application/json:
               schema:
@@ -1300,6 +1312,11 @@ paths:
       tags: [Reports]
       operationId: recommendationsReport
       summary: Recommendations from the caller's categories
+      description: |
+        Books in categories of books the caller completed or rated 4-5,
+        weighted by how many liked books share the category. Books the caller
+        already tracks, shelved, rated, or reviewed are left out. A caller
+        with no liked books gets an empty list (q06).
       security:
         - cookieAuth: []
         - bearerAuth: []
@@ -1314,12 +1331,17 @@ paths:
       responses:
         "200":
           description: Recommended books.
+          headers:
+            X-Query-Id:
+              $ref: "#/components/headers/XQueryId"
           content:
             application/json:
               schema:
                 type: array
                 items:
                   $ref: "#/components/schemas/Recommendation"
+        "400":
+          $ref: "#/components/responses/ValidationError"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -1328,7 +1350,9 @@ paths:
       tags: [Reports]
       operationId: authorRankingsReport
       summary: Author leaderboard
+      description: RANK() by average rating, then rating count, over entries with at least minRatings ratings (q08).
       parameters:
+        - $ref: "#/components/parameters/RankingMinRatings"
         - name: limit
           in: query
           schema:
@@ -1339,19 +1363,26 @@ paths:
       responses:
         "200":
           description: Author rankings.
+          headers:
+            X-Query-Id:
+              $ref: "#/components/headers/XQueryId"
           content:
             application/json:
               schema:
                 type: array
                 items:
                   $ref: "#/components/schemas/AuthorRanking"
+        "400":
+          $ref: "#/components/responses/ValidationError"
 
   /api/reports/categories:
     get:
       tags: [Reports]
       operationId: categoryRankingsReport
       summary: Category leaderboard
+      description: RANK() by average rating, then rating count, over entries with at least minRatings ratings (q08).
       parameters:
+        - $ref: "#/components/parameters/RankingMinRatings"
         - name: limit
           in: query
           schema:
@@ -1362,35 +1393,41 @@ paths:
       responses:
         "200":
           description: Category rankings.
+          headers:
+            X-Query-Id:
+              $ref: "#/components/headers/XQueryId"
           content:
             application/json:
               schema:
                 type: array
                 items:
                   $ref: "#/components/schemas/CategoryRanking"
+        "400":
+          $ref: "#/components/responses/ValidationError"
 
   /api/reports/review-activity:
     get:
       tags: [Reports]
       operationId: reviewActivityReport
       summary: Daily review and rating counts
+      description: One point per UTC day in the window, oldest first; days without activity are 0 (q09).
       parameters:
-        - name: days
-          in: query
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 365
-            default: 30
+        - $ref: "#/components/parameters/ReportDays"
+        - $ref: "#/components/parameters/ReportEndDate"
       responses:
         "200":
           description: Daily activity.
+          headers:
+            X-Query-Id:
+              $ref: "#/components/headers/XQueryId"
           content:
             application/json:
               schema:
                 type: array
                 items:
                   $ref: "#/components/schemas/ReviewActivityPoint"
+        "400":
+          $ref: "#/components/responses/ValidationError"
 
   /api/reports/queries:
     get:
@@ -1420,6 +1457,34 @@ components:
       bearerFormat: JWT
 
   parameters:
+    ReportDays:
+      name: days
+      in: query
+      description: Window length in whole UTC days, ending on endDate.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 365
+        default: 30
+    ReportEndDate:
+      name: endDate
+      in: query
+      description: |
+        Last UTC day of the window (YYYY-MM-DD). Defaults to today in UTC; at
+        most one day ahead of UTC. The seed data ends on 2026-10-31, so
+        `endDate=2026-10-31` gives a stable demo window.
+      schema:
+        type: string
+        format: date
+    RankingMinRatings:
+      name: minRatings
+      in: query
+      description: Leave out authors or categories with fewer ratings; applied before ranking.
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 1000
+        default: 5
     Page:
       name: page
       in: query
@@ -1472,6 +1537,11 @@ components:
         format: uuid
 
   headers:
+    XQueryId:
+      description: Evidence ID (q01-q10) of the SQL behind this report; see GET /api/reports/queries.
+      schema:
+        type: string
+        example: q05
     XTotalCount:
       description: Total number of rows matching the query.
       schema:
@@ -2395,13 +2465,26 @@ components:
           type: integer
     QueryCatalogEntry:
       type: object
+      required: [id, name, description, endpoints, queries, sql]
       properties:
         id:
           type: string
           example: q05
         name:
           type: string
-        endpoint:
+        description:
           type: string
+        endpoints:
+          type: array
+          items:
+            type: string
+          example: ["GET /api/reports/popular"]
+        queries:
+          type: array
+          description: Named queries in database/queries/ (sqlc names).
+          items:
+            type: string
+          example: [PopularBooks]
         sql:
           type: string
+          description: The exact SQL the API runs, one block per named query.
