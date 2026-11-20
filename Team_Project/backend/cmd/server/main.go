@@ -1,167 +1,104 @@
+// Command server runs the Book Metaverse API.
 package main
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json"
 	"errors"
 	"log/slog"
-	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
-	"strings"
+	"strconv"
 	"syscall"
 	"time"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"book-metaverse/backend/internal/auth"
+	"book-metaverse/backend/internal/config"
+	"book-metaverse/backend/internal/database"
+	"book-metaverse/backend/internal/handlers"
+	"book-metaverse/backend/internal/middleware"
+	"book-metaverse/backend/internal/repository"
+	"book-metaverse/backend/internal/router"
+	"book-metaverse/backend/internal/services"
 )
 
-type server struct {
-	db *sql.DB
-}
-
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	slog.SetDefault(logger)
-
-	port := envOrDefault("PORT", "8080")
-
-	// sql.Open creates a connection pool handle. The pgx driver is registered
-	// by the underscore import above, and the first real connection is made by
-	// the readiness check.
-	db, err := sql.Open("pgx", databaseURL())
-	if err != nil {
-		slog.Error("configure database", "error", err)
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+	if err := run(); err != nil {
+		slog.Error("api failed", "error", err)
 		os.Exit(1)
 	}
-	defer db.Close()
+}
 
-	// Keep the pool bounded so the small API container cannot exhaust RDS.
-	db.SetMaxOpenConns(10)
-	db.SetMaxIdleConns(5)
-	db.SetConnMaxLifetime(30 * time.Minute)
-
-	api := &server{db: db}
-	mux := http.NewServeMux()
-
-	// "{$}" matches only the root path, so unknown routes return 404 instead
-	// of incorrectly receiving the root response.
-	mux.HandleFunc("GET /{$}", api.handleRoot)
-	mux.HandleFunc("GET /healthz", api.handleHealth)
-	mux.HandleFunc("GET /readyz", api.handleReady)
-
-	httpServer := &http.Server{
-		Addr:              ":" + port,
-		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      10 * time.Second,
-		IdleTimeout:       60 * time.Second,
+func run() error {
+	cfg, err := config.FromEnv()
+	if err != nil {
+		return err
 	}
+	cfg.LogSummary()
 
-	// Convert container stop signals into a context used for graceful shutdown.
-	shutdownSignal, stop := signal.NotifyContext(
-		context.Background(),
-		syscall.SIGINT,
-		syscall.SIGTERM,
-	)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	go func() {
-		slog.Info("api listening", "port", port)
-		if err := httpServer.ListenAndServe(); err != nil &&
-			!errors.Is(err, http.ErrServerClosed) {
-			slog.Error("api stopped unexpectedly", "error", err)
-			os.Exit(1)
+	databaseURL := cfg.DatabaseURL
+	if cfg.DatabaseSource == config.SourceSecret {
+		secrets, err := database.NewAWSSecrets(ctx, cfg.AWSRegion)
+		if err != nil {
+			return err
 		}
+		if databaseURL, err = database.ResolveURL(ctx, cfg, secrets); err != nil {
+			return err
+		}
+		slog.Info("database credentials read from Secrets Manager")
+	}
+
+	pool, err := database.Open(ctx, databaseURL)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+
+	tokens := auth.NewTokens(cfg.JWTSecret)
+	users := repository.NewUsers(pool)
+	authHandler := handlers.Auth{Service: services.NewAuth(users), Tokens: tokens, CookieSecure: cfg.CookieSecure}
+
+	server := &http.Server{
+		Addr: ":" + strconv.Itoa(cfg.Port),
+		Handler: router.New(router.Deps{
+			Health: handlers.Health{DB: pool},
+			Auth:   authHandler,
+			Users:  handlers.Users{Service: services.NewUsers(users), Auth: authHandler},
+			Authn:  middleware.Authenticator{Tokens: tokens},
+		}),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		// Above the 10-second request timeout so handlers can still write their error.
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	serverErr := make(chan error, 1)
+	go func() {
+		slog.Info("api listening", "port", cfg.Port)
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErr <- err
+		}
+		close(serverErr)
 	}()
 
-	<-shutdownSignal.Done()
-	slog.Info("shutting down")
+	select {
+	case err := <-serverErr:
+		return err
+	case <-ctx.Done():
+		slog.Info("shutting down", "reason", "signal")
+	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Drain in-flight requests, then close the pool (deferred above).
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-
-	if err := httpServer.Shutdown(ctx); err != nil {
-		slog.Error("graceful shutdown failed", "error", err)
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		return err
 	}
-}
-
-func (s *server) handleRoot(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
-		"service": "book-metaverse-api",
-		"status":  "running",
-	})
-}
-
-func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
-		"service": "book-metaverse-api",
-		"status":  "ok",
-	})
-}
-
-func (s *server) handleReady(w http.ResponseWriter, request *http.Request) {
-	ctx, cancel := context.WithTimeout(request.Context(), 5*time.Second)
-	defer cancel()
-
-	// PingContext performs a real database round trip for Kubernetes, Compose,
-	// or a load balancer that needs to know whether this instance is ready.
-	if err := s.db.PingContext(ctx); err != nil {
-		slog.Warn("database readiness check failed", "error", err)
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
-			"database": "unavailable",
-			"status":   "not_ready",
-		})
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"database": "connected",
-		"status":   "ready",
-	})
-}
-
-func databaseURL() string {
-	// DATABASE_URL is useful when one complete connection string is provided.
-	if value := strings.TrimSpace(os.Getenv("DATABASE_URL")); value != "" {
-		return value
-	}
-
-	host := envOrDefault("DB_HOST", "localhost")
-	port := envOrDefault("DB_PORT", "5432")
-	name := envOrDefault("DB_NAME", "book_metaverse")
-	user := envOrDefault("DB_USER", "book_app")
-	sslmode := envOrDefault("DB_SSLMODE", "prefer")
-
-	// url.UserPassword escapes reserved characters in the username/password.
-	connection := &url.URL{
-		Scheme: "postgres",
-		User:   url.UserPassword(user, os.Getenv("DB_PASSWORD")),
-		Host:   net.JoinHostPort(host, port),
-		Path:   "/" + name,
-	}
-
-	query := connection.Query()
-	query.Set("sslmode", sslmode)
-	connection.RawQuery = query.Encode()
-
-	return connection.String()
-}
-
-func envOrDefault(key, fallback string) string {
-	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
-		return value
-	}
-	return fallback
-}
-
-func writeJSON(w http.ResponseWriter, status int, payload any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(payload); err != nil {
-		slog.Error("write response", "error", err)
-	}
+	slog.Info("stopped")
+	return nil
 }

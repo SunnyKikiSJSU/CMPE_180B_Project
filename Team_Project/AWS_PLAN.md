@@ -42,8 +42,8 @@ marks below and note the date.
 | Backend IAM role | `aws_iam_role.backend`, `aws_iam_instance_profile.backend` (`iam.tf`) | `[x]` `[?]` | EC2 assume-role; may read the database secret and nothing else |
 | Outputs | `outputs.tf` | `[x]` | `db_address`, `db_port`, `db_name`, `db_endpoint`, `db_security_group_id`, `db_secret_arn`, `backend_iam_role_name`, `backend_instance_profile_name` |
 
-The application does not read Secrets Manager at runtime (see §2). The secret is
-where you look up the database credentials once:
+The API reads this secret at startup when `DB_SECRET_ARN` is set (see §2).
+Otherwise, look up the database credentials once:
 
 ```bash
 aws secretsmanager get-secret-value \
@@ -83,8 +83,8 @@ yet.
 | Topic | Decision |
 | --- | --- |
 | Compute | EC2, not ECS Fargate. No ECR, ALB, CloudFront, Route 53, or CloudWatch |
-| Application secrets | `.env` on the instance (mode 600, never committed): database password, `JWT_SECRET`, Google key. The Go code does not call Secrets Manager. The team's `secrets.tf` and `iam.tf` stay as they are; the secret is only where the database password is looked up |
-| `infra/README.md` guidance | It says the backend should read the database secret at startup and never take credentials from environment variables. This plan does not follow that for the course project: the API reads environment variables from `.env`. Agree this with the author of `infra/` |
+| Application secrets | `.env` on the instance (mode 600, never committed): `JWT_SECRET`, Google key, and either the database password or `DB_SECRET_ARN`. With `DB_SECRET_ARN` set, the API reads the database credentials from the team's Secrets Manager secret at startup using the instance profile from `iam.tf` (conflict #4, decided 2026-11-19). Migrations and seeds still use the `RDS_*` values |
+| `infra/README.md` guidance | It says the backend should read the database secret at startup. The API supports both: `DB_SECRET_ARN` (recommended on EC2) or the `DB_*` values from `.env` (local and `./scripts/dev.sh rds`) |
 | JWT secret and Google key | `.env` |
 | HTTPS | None. Plain HTTP on port 80, `COOKIE_SECURE=false` |
 | Same-site cookies, CORS | The browser only talks to the Next.js container, which forwards `/api/*` to the API over the Compose network. No CORS, no cross-site cookie question |
