@@ -288,9 +288,9 @@ storage.
 - [ ] Web service in Compose (needs `frontend/Dockerfile`).
 - [x] Database schema, migrations (`000001`-`000007`), and seed data.
 - [x] API contract (`docs/api/openapi.yaml`), including Google Books search and import.
-- [ ] Go API and authentication.
+- [x] Go API and authentication: auth, catalog, shelves and progress, reviews and ratings, and reports (Google Books search and import still return `501`).
 - [ ] Next.js application.
-- [ ] Validation, concurrency, and performance evidence.
+- [ ] Validation, concurrency, and performance evidence (transaction and concurrency evidence and the query catalog are done; validation and performance are not).
 - [ ] AWS deployment.
 - [ ] S3-backed asset storage (post-MVP).
 

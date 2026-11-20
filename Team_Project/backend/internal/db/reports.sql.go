@@ -18,7 +18,7 @@ SELECT
     a.name,
     count(DISTINCT ba.book_id)::int AS book_count,
     count(rt.rating_id)::int AS rating_count,
-    coalesce(round(avg(rt.rating_value)::numeric, 2), 0) AS average_rating,
+    coalesce(round(avg(rt.rating_value)::numeric, 2), 0)::numeric(3, 2) AS average_rating,
     (
         rank() OVER (
             ORDER BY
@@ -30,21 +30,27 @@ FROM authors a
 LEFT JOIN book_authors ba ON ba.author_id = a.author_id
 LEFT JOIN ratings rt ON rt.book_id = ba.book_id
 GROUP BY a.author_id, a.name
+HAVING count(rt.rating_id) >= $1::int
 ORDER BY ranking, a.name
-LIMIT $1::int
+LIMIT $2::int
 `
+
+type AuthorRankingsParams struct {
+	MinRatings int32
+	Limit      int32
+}
 
 type AuthorRankingsRow struct {
 	AuthorID      uuid.UUID
 	Name          string
 	BookCount     int32
 	RatingCount   int32
-	AverageRating interface{}
+	AverageRating float64
 	Ranking       int32
 }
 
-func (q *Queries) AuthorRankings(ctx context.Context, limit int32) ([]AuthorRankingsRow, error) {
-	rows, err := q.db.Query(ctx, authorRankings, limit)
+func (q *Queries) AuthorRankings(ctx context.Context, arg AuthorRankingsParams) ([]AuthorRankingsRow, error) {
+	rows, err := q.db.Query(ctx, authorRankings, arg.MinRatings, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +82,7 @@ SELECT
     c.name,
     count(DISTINCT bc.book_id)::int AS book_count,
     count(rt.rating_id)::int AS rating_count,
-    coalesce(round(avg(rt.rating_value)::numeric, 2), 0) AS average_rating,
+    coalesce(round(avg(rt.rating_value)::numeric, 2), 0)::numeric(3, 2) AS average_rating,
     (
         rank() OVER (
             ORDER BY
@@ -88,21 +94,27 @@ FROM categories c
 LEFT JOIN book_categories bc ON bc.category_id = c.category_id
 LEFT JOIN ratings rt ON rt.book_id = bc.book_id
 GROUP BY c.category_id, c.name
+HAVING count(rt.rating_id) >= $1::int
 ORDER BY ranking, c.name
-LIMIT $1::int
+LIMIT $2::int
 `
+
+type CategoryRankingsParams struct {
+	MinRatings int32
+	Limit      int32
+}
 
 type CategoryRankingsRow struct {
 	CategoryID    uuid.UUID
 	Name          string
 	BookCount     int32
 	RatingCount   int32
-	AverageRating interface{}
+	AverageRating float64
 	Ranking       int32
 }
 
-func (q *Queries) CategoryRankings(ctx context.Context, limit int32) ([]CategoryRankingsRow, error) {
-	rows, err := q.db.Query(ctx, categoryRankings, limit)
+func (q *Queries) CategoryRankings(ctx context.Context, arg CategoryRankingsParams) ([]CategoryRankingsRow, error) {
+	rows, err := q.db.Query(ctx, categoryRankings, arg.MinRatings, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -131,20 +143,27 @@ func (q *Queries) CategoryRankings(ctx context.Context, limit int32) ([]Category
 const favoriteCategories = `-- name: FavoriteCategories :many
 WITH params AS (
     SELECT $2::uuid AS user_id
+),
+liked_books AS (
+    SELECT rp.book_id
+    FROM reading_progress rp
+    CROSS JOIN params p
+    WHERE rp.user_id = p.user_id
+      AND rp.status = 'completed'
+    UNION
+    SELECT rt.book_id
+    FROM ratings rt
+    CROSS JOIN params p
+    WHERE rt.user_id = p.user_id
+      AND rt.rating_value >= 4
 )
 SELECT
     c.category_id,
     c.name,
     count(*)::int AS book_count
-FROM reading_progress rp
-JOIN book_categories bc ON bc.book_id = rp.book_id
+FROM liked_books lb
+JOIN book_categories bc ON bc.book_id = lb.book_id
 JOIN categories c ON c.category_id = bc.category_id
-LEFT JOIN ratings rt
-    ON rt.user_id = rp.user_id
-   AND rt.book_id = rp.book_id
-CROSS JOIN params p
-WHERE rp.user_id = p.user_id
-  AND (rp.status = 'completed' OR rt.rating_value >= 4)
 GROUP BY c.category_id, c.name
 ORDER BY book_count DESC, c.name
 LIMIT $1::int
@@ -182,12 +201,19 @@ func (q *Queries) FavoriteCategories(ctx context.Context, arg FavoriteCategories
 }
 
 const popularBooks = `-- name: PopularBooks :many
-WITH shelf_counts AS (
+WITH window_bounds AS (
+    SELECT
+        ($2::date - ($3::int - 1))::timestamp AT TIME ZONE 'UTC' AS starts_at,
+        ($2::date + 1)::timestamp AT TIME ZONE 'UTC' AS ends_at
+),
+shelf_counts AS (
     SELECT
         usi.book_id,
         count(*)::int AS shelf_adds
     FROM user_shelf_items usi
-    WHERE usi.added_at >= now() - ($2::int * interval '1 day')
+    CROSS JOIN window_bounds w
+    WHERE usi.added_at >= w.starts_at
+      AND usi.added_at < w.ends_at
     GROUP BY usi.book_id
 ),
 rating_counts AS (
@@ -196,7 +222,9 @@ rating_counts AS (
         count(*)::int AS ratings,
         round(avg(rt.rating_value)::numeric, 2) AS average_rating
     FROM ratings rt
-    WHERE rt.created_at >= now() - ($2::int * interval '1 day')
+    CROSS JOIN window_bounds w
+    WHERE rt.created_at >= w.starts_at
+      AND rt.created_at < w.ends_at
     GROUP BY rt.book_id
 )
 SELECT
@@ -228,8 +256,9 @@ LIMIT $1::int
 `
 
 type PopularBooksParams struct {
-	Limit int32
-	Days  int32
+	Limit   int32
+	EndDate pgtype.Date
+	Days    int32
 }
 
 type PopularBooksRow struct {
@@ -244,7 +273,7 @@ type PopularBooksRow struct {
 }
 
 func (q *Queries) PopularBooks(ctx context.Context, arg PopularBooksParams) ([]PopularBooksRow, error) {
-	rows, err := q.db.Query(ctx, popularBooks, arg.Limit, arg.Days)
+	rows, err := q.db.Query(ctx, popularBooks, arg.Limit, arg.EndDate, arg.Days)
 	if err != nil {
 		return nil, err
 	}
@@ -277,7 +306,7 @@ SELECT
     a.author_id,
     a.name,
     count(rt.rating_id)::int AS rating_count,
-    coalesce(round(avg(rt.rating_value)::numeric, 2), 0) AS average_rating
+    coalesce(round(avg(rt.rating_value)::numeric, 2), 0)::numeric(3, 2) AS average_rating
 FROM authors a
 JOIN book_authors ba ON ba.author_id = a.author_id
 JOIN ratings rt ON rt.book_id = ba.book_id
@@ -291,7 +320,7 @@ type RatingSummaryByAuthorRow struct {
 	AuthorID      uuid.UUID
 	Name          string
 	RatingCount   int32
-	AverageRating interface{}
+	AverageRating float64
 }
 
 func (q *Queries) RatingSummaryByAuthor(ctx context.Context, limit int32) ([]RatingSummaryByAuthorRow, error) {
@@ -324,7 +353,7 @@ SELECT
     c.category_id,
     c.name,
     count(rt.rating_id)::int AS rating_count,
-    coalesce(round(avg(rt.rating_value)::numeric, 2), 0) AS average_rating
+    coalesce(round(avg(rt.rating_value)::numeric, 2), 0)::numeric(3, 2) AS average_rating
 FROM categories c
 JOIN book_categories bc ON bc.category_id = c.category_id
 JOIN ratings rt ON rt.book_id = bc.book_id
@@ -338,7 +367,7 @@ type RatingSummaryByCategoryRow struct {
 	CategoryID    uuid.UUID
 	Name          string
 	RatingCount   int32
-	AverageRating interface{}
+	AverageRating float64
 }
 
 func (q *Queries) RatingSummaryByCategory(ctx context.Context, limit int32) ([]RatingSummaryByCategoryRow, error) {
@@ -400,9 +429,26 @@ type ReadingReportSummaryRow struct {
 	PagesRead int32
 }
 
-// Report queries q03-q10.
+// Report queries (evidence IDs from BACKEND_PLAN.md §5.4; the API lists them at
+// GET /api/reports/queries):
+//
+//	q04 TopRatedBooks, RatingSummaryByCategory, RatingSummaryByAuthor
+//	q05 PopularBooks
+//	q06 RecommendedBooks
+//	q07 UserReadingStats, ReadingReportSummary, FavoriteCategories,
+//	    RecentReadingActivity
+//	q08 AuthorRankings, CategoryRankings (HAVING applies min_ratings before
+//	    RANK(), so a single 5-star rating cannot top the leaderboard)
+//	q09 ReviewActivity
+//
+// (q01-q03 and q10 are in books.sql, shelves.sql, and ratings.sql.)
 //
 // The reading-history report matches the existing frontend ReadingReport type.
+// Pages read: a completed book counts books.page_count; a reading or paused
+// book counts reading_progress.current_page; each user/book pair has one
+// progress row, so no book is counted twice.
+// A "liked" book is one the user completed or rated 4 or 5.
+// Time windows cover whole UTC days: [end_date - days + 1, end_date].
 // Popularity and recommendations pre-aggregate in CTEs so joining multiple
 // activity tables does not multiply rows and inflate counts.
 func (q *Queries) ReadingReportSummary(ctx context.Context, userID uuid.UUID) (ReadingReportSummaryRow, error) {
@@ -469,18 +515,25 @@ const recommendedBooks = `-- name: RecommendedBooks :many
 WITH params AS (
     SELECT $2::uuid AS user_id
 ),
+liked_books AS (
+    SELECT rp.book_id
+    FROM reading_progress rp
+    CROSS JOIN params p
+    WHERE rp.user_id = p.user_id
+      AND rp.status = 'completed'
+    UNION
+    SELECT rt.book_id
+    FROM ratings rt
+    CROSS JOIN params p
+    WHERE rt.user_id = p.user_id
+      AND rt.rating_value >= 4
+),
 preferred_categories AS (
     SELECT
         bc.category_id,
         count(*)::int AS weight
-    FROM reading_progress rp
-    JOIN book_categories bc ON bc.book_id = rp.book_id
-    LEFT JOIN ratings rt
-        ON rt.user_id = rp.user_id
-       AND rt.book_id = rp.book_id
-    CROSS JOIN params p
-    WHERE rp.user_id = p.user_id
-      AND (rp.status = 'completed' OR rt.rating_value >= 4)
+    FROM liked_books lb
+    JOIN book_categories bc ON bc.book_id = lb.book_id
     GROUP BY bc.category_id
 ),
 read_books AS (
@@ -488,6 +541,22 @@ read_books AS (
     FROM reading_progress rp
     CROSS JOIN params p
     WHERE rp.user_id = p.user_id
+    UNION
+    SELECT usi.book_id
+    FROM user_shelf_items usi
+    JOIN shelves sh ON sh.shelf_id = usi.shelf_id
+    CROSS JOIN params p
+    WHERE sh.user_id = p.user_id
+    UNION
+    SELECT rt.book_id
+    FROM ratings rt
+    CROSS JOIN params p
+    WHERE rt.user_id = p.user_id
+    UNION
+    SELECT rv.book_id
+    FROM reviews rv
+    CROSS JOIN params p
+    WHERE rv.user_id = p.user_id
 ),
 candidates AS (
     SELECT
@@ -540,6 +609,7 @@ type RecommendedBooksRow struct {
 	AverageRating float64
 }
 
+// Books the user already knows: tracked, shelved, rated, or reviewed.
 func (q *Queries) RecommendedBooks(ctx context.Context, arg RecommendedBooksParams) ([]RecommendedBooksRow, error) {
 	rows, err := q.db.Query(ctx, recommendedBooks, arg.Limit, arg.UserID)
 	if err != nil {
@@ -569,32 +639,43 @@ func (q *Queries) RecommendedBooks(ctx context.Context, arg RecommendedBooksPara
 
 const reviewActivity = `-- name: ReviewActivity :many
 WITH params AS (
-    SELECT $1::int AS days
+    SELECT
+        $1::date AS end_date,
+        $2::int AS days
 ),
 days AS (
-    SELECT generate_series(
-        date_trunc('day', now()) - (p.days - 1) * interval '1 day',
-        date_trunc('day', now()),
-        interval '1 day'
-    ) AS day
+    SELECT d::date AS day
     FROM params p
+    CROSS JOIN generate_series(p.end_date - (p.days - 1), p.end_date, interval '1 day') AS d
+),
+window_bounds AS (
+    SELECT
+        min(day)::timestamp AT TIME ZONE 'UTC' AS starts_at,
+        (max(day) + 1)::timestamp AT TIME ZONE 'UTC' AS ends_at
+    FROM days
 ),
 review_counts AS (
     SELECT
-        date_trunc('day', created_at) AS day,
+        (r.created_at AT TIME ZONE 'UTC')::date AS day,
         count(*)::int AS reviews
-    FROM reviews
+    FROM reviews r
+    CROSS JOIN window_bounds w
+    WHERE r.created_at >= w.starts_at
+      AND r.created_at < w.ends_at
     GROUP BY 1
 ),
 rating_counts AS (
     SELECT
-        date_trunc('day', created_at) AS day,
+        (rt.created_at AT TIME ZONE 'UTC')::date AS day,
         count(*)::int AS ratings
-    FROM ratings
+    FROM ratings rt
+    CROSS JOIN window_bounds w
+    WHERE rt.created_at >= w.starts_at
+      AND rt.created_at < w.ends_at
     GROUP BY 1
 )
 SELECT
-    d.day::date AS day,
+    d.day,
     coalesce(rc.reviews, 0)::int AS reviews,
     coalesce(rt.ratings, 0)::int AS ratings
 FROM days d
@@ -603,14 +684,19 @@ LEFT JOIN rating_counts rt ON rt.day = d.day
 ORDER BY d.day
 `
 
+type ReviewActivityParams struct {
+	EndDate pgtype.Date
+	Days    int32
+}
+
 type ReviewActivityRow struct {
 	Day     pgtype.Date
 	Reviews int32
 	Ratings int32
 }
 
-func (q *Queries) ReviewActivity(ctx context.Context, days int32) ([]ReviewActivityRow, error) {
-	rows, err := q.db.Query(ctx, reviewActivity, days)
+func (q *Queries) ReviewActivity(ctx context.Context, arg ReviewActivityParams) ([]ReviewActivityRow, error) {
+	rows, err := q.db.Query(ctx, reviewActivity, arg.EndDate, arg.Days)
 	if err != nil {
 		return nil, err
 	}
@@ -721,7 +807,7 @@ in_progress AS (
 rating_stats AS (
     SELECT
         count(*)::int AS ratings_given,
-        coalesce(round(avg(rt.rating_value)::numeric, 2), 0) AS average_rating
+        coalesce(round(avg(rt.rating_value)::numeric, 2), 0)::numeric(3, 2) AS average_rating
     FROM ratings rt
     CROSS JOIN params p
     WHERE rt.user_id = p.user_id
@@ -750,7 +836,7 @@ type UserReadingStatsRow struct {
 	BooksInProgress int32
 	PagesRead       int32
 	RatingsGiven    int32
-	AverageRating   interface{}
+	AverageRating   float64
 	ReviewsWritten  int32
 }
 

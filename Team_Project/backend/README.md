@@ -26,7 +26,7 @@ Go API for the Book Metaverse Portal.
 
 ## Endpoints
 
-Implemented (Phases 2-6): `/`, `/healthz`, `/readyz` (database ping, `503`
+Implemented (Phases 2-7): `/`, `/healthz`, `/readyz` (database ping, `503`
 when PostgreSQL is unreachable), `POST /api/auth/register`, `POST /api/auth/login`,
 `POST /api/auth/logout`, `GET /api/auth/me`, `GET|PATCH|DELETE /api/users/me`,
 `PUT /api/users/me/password`, `GET|POST /api/books`, `GET|PATCH /api/books/{bookId}`,
@@ -36,10 +36,16 @@ when PostgreSQL is unreachable), `POST /api/auth/register`, `POST /api/auth/logi
 remove), `/api/reading-progress` (list, get, update, delete),
 `GET /api/reading-history`, `GET|POST|DELETE /api/books/{bookId}/ratings`,
 `GET|POST /api/books/{bookId}/reviews`, `PUT /api/books/{bookId}/review` (rating
-and review in one transaction), `PATCH|DELETE /api/reviews/{reviewId}`, and
-`GET /api/users/me/reviews|ratings`. Every other route in `docs/api/openapi.yaml` is
-registered with its auth requirement and returns `501 NOT_IMPLEMENTED` until its
-phase is built. Unknown routes return `404 NOT_FOUND`.
+and review in one transaction), `PATCH|DELETE /api/reviews/{reviewId}`,
+`GET /api/users/me/reviews|ratings`, and the reports under `/api/reports/`
+(`reading-history`, `user-stats`, `popular`, `top-rated`, `recommendations`,
+`authors`, `categories`, `review-activity`, `queries`). Each report response
+has an `X-Query-Id` header (q01-q10, see `docs/database/query-catalog.md`);
+`popular` and `review-activity` take `days` and an optional `endDate` (use
+`2026-10-31` for the seed data). The Google Books routes
+`GET /api/external/books` and `POST /api/books/import` are registered with their
+auth requirement and return `501 NOT_IMPLEMENTED` until that design is
+approved. Unknown routes return `404 NOT_FOUND`.
 
 Sessions: the `bm_session` cookie (`HttpOnly; SameSite=Lax; Path=/`, plus
 `Secure` when `COOKIE_SECURE=true`) or `Authorization: ******` for curl

@@ -166,6 +166,42 @@ func (f *fakeReviews) SaveReview(_ context.Context, _, _ uuid.UUID, rating *int,
 
 func (f *fakeReviews) DeleteReview(context.Context, uuid.UUID, uuid.UUID) error { return nil }
 
+// fakeReports embeds the interface so tests implement only what they call.
+type fakeReports struct {
+	handlers.ReportService
+	window     domain.Window
+	limit      int
+	minRatings int
+}
+
+func (f *fakeReports) Popular(_ context.Context, w domain.Window, limit int) ([]domain.PopularBook, error) {
+	f.window, f.limit = w, limit
+	return []domain.PopularBook{}, nil
+}
+
+func (f *fakeReports) TopRated(_ context.Context, minRatings, limit int) ([]domain.TopRatedBook, error) {
+	f.minRatings, f.limit = minRatings, limit
+	return []domain.TopRatedBook{}, nil
+}
+
+func (f *fakeReports) AuthorRankings(_ context.Context, minRatings, limit int) ([]domain.AuthorRanking, error) {
+	f.minRatings, f.limit = minRatings, limit
+	return []domain.AuthorRanking{}, nil
+}
+
+func (f *fakeReports) ReviewActivity(_ context.Context, w domain.Window) ([]domain.ActivityPoint, error) {
+	f.window = w
+	return []domain.ActivityPoint{}, nil
+}
+
+func (f *fakeReports) ReadingReport(context.Context, uuid.UUID) (domain.ReadingReport, error) {
+	return domain.ReadingReport{FavoriteCategories: []domain.Ref{}, RecentActivity: []domain.RecentActivity{}}, nil
+}
+
+func (f *fakeReports) Catalog() []domain.QueryCatalogEntry {
+	return []domain.QueryCatalogEntry{{ID: "q05"}}
+}
+
 type fakePinger struct{ err error }
 
 func (f fakePinger) Ping(context.Context) error { return f.err }
@@ -178,11 +214,12 @@ type harness struct {
 	catalog *fakeCatalog
 	reading *fakeReading
 	reviews *fakeReviews
+	reports *fakeReports
 }
 
 func newHarness(dbErr error) harness {
 	tokens := auth.NewTokens([]byte("router-test-secret-0123456789abcdef"))
-	fa, fu, fc, fr, fv := &fakeAuth{}, &fakeUsers{}, &fakeCatalog{}, &fakeReading{}, &fakeReviews{}
+	fa, fu, fc, fr, fv, fp := &fakeAuth{}, &fakeUsers{}, &fakeCatalog{}, &fakeReading{}, &fakeReviews{}, &fakeReports{}
 	authHandler := handlers.Auth{Service: fa, Tokens: tokens}
 	return harness{
 		handler: New(Deps{
@@ -192,9 +229,10 @@ func newHarness(dbErr error) harness {
 			Catalog: handlers.Catalog{Service: fc},
 			Reading: handlers.Reading{Service: fr},
 			Reviews: handlers.Reviews{Service: fv},
+			Reports: handlers.Reports{Service: fp, Now: func() time.Time { return reportClock }},
 			Authn:   middleware.Authenticator{Tokens: tokens},
 		}),
-		tokens: tokens, users: fu, auth: fa, catalog: fc, reading: fr, reviews: fv,
+		tokens: tokens, users: fu, auth: fa, catalog: fc, reading: fr, reviews: fv, reports: fp,
 	}
 }
 
@@ -358,7 +396,7 @@ func TestSkeletonAndUnknownRoutes(t *testing.T) {
 	if rec := h.do("GET", "/api/external/books", "", nil); rec.Code != 501 || errorCode(t, rec) != "NOT_IMPLEMENTED" {
 		t.Fatalf("public stub: %d", rec.Code)
 	}
-	if rec := h.do("GET", "/api/reports/user-stats", "", h.bearer()); rec.Code != 501 {
+	if rec := h.do("POST", "/api/books/import", "{}", h.bearer()); rec.Code != 501 {
 		t.Fatalf("protected stub: %d", rec.Code)
 	}
 	for _, route := range [][2]string{{"GET", "/api/admin"}, {"GET", "/debug/pprof"}, {"DELETE", "/api/books"}} {
@@ -513,5 +551,66 @@ func TestReviewRoutes(t *testing.T) {
 		if rec := h.do("DELETE", path, "", h.bearer()); rec.Code != 404 {
 			t.Errorf("malformed id %s: %d", path, rec.Code)
 		}
+	}
+}
+
+// reportClock is "now" for report windows in router tests.
+var reportClock = time.Date(2026, 11, 20, 23, 30, 0, 0, time.UTC)
+
+func TestReportRoutes(t *testing.T) {
+	h := newHarness(nil)
+	for _, path := range []string{"/api/reports/reading-history", "/api/reports/user-stats", "/api/reports/recommendations"} {
+		if rec := h.do("GET", path, "", nil); rec.Code != 401 {
+			t.Errorf("anonymous %s: %d", path, rec.Code)
+		}
+	}
+	rec := h.do("GET", "/api/reports/reading-history", "", h.bearer())
+	if rec.Code != 200 || rec.Header().Get("X-Query-Id") != "q07" || rec.Header().Get("Cache-Control") != "no-store" ||
+		!strings.Contains(rec.Body.String(), `"favoriteCategories":[]`) {
+		t.Fatalf("reading history: %d %v %s", rec.Code, rec.Header(), rec.Body.String())
+	}
+
+	// Defaults: days 30 ending today (UTC), limit 10.
+	rec = h.do("GET", "/api/reports/popular", "", nil)
+	if rec.Code != 200 || rec.Header().Get("X-Query-Id") != "q05" || rec.Body.String() != "[]\n" ||
+		h.reports.window.Days != 30 || h.reports.window.EndDate.Format(time.DateOnly) != "2026-11-20" || h.reports.limit != 10 {
+		t.Fatalf("popular defaults: %d %q %+v %d", rec.Code, rec.Body.String(), h.reports.window, h.reports.limit)
+	}
+	if rec := h.do("GET", "/api/reports/popular?days=7&endDate=2026-10-31&limit=3", "", nil); rec.Code != 200 ||
+		h.reports.window.Days != 7 || h.reports.window.EndDate.Format(time.DateOnly) != "2026-10-31" || h.reports.limit != 3 {
+		t.Fatalf("popular params: %d %+v", rec.Code, h.reports.window)
+	}
+	// One day ahead of UTC is allowed (callers east of UTC); two is not.
+	if rec := h.do("GET", "/api/reports/review-activity?endDate=2026-11-21", "", nil); rec.Code != 200 || rec.Header().Get("X-Query-Id") != "q09" {
+		t.Fatalf("endDate tomorrow: %d", rec.Code)
+	}
+	if rec := h.do("GET", "/api/reports/top-rated?minRatings=0", "", nil); rec.Code != 200 || h.reports.minRatings != 0 || h.reports.limit != 10 {
+		t.Fatalf("top-rated minRatings=0: %d %d", rec.Code, h.reports.minRatings)
+	}
+	if rec := h.do("GET", "/api/reports/authors", "", nil); rec.Code != 200 || h.reports.limit != 20 || h.reports.minRatings != 5 || rec.Header().Get("X-Query-Id") != "q08" {
+		t.Fatalf("authors defaults: %d %d %d", rec.Code, h.reports.limit, h.reports.minRatings)
+	}
+
+	for query, field := range map[string]string{
+		"/api/reports/popular?days=0":                     "days",
+		"/api/reports/popular?days=366":                   "days",
+		"/api/reports/popular?days=abc":                   "days",
+		"/api/reports/popular?limit=101":                  "limit",
+		"/api/reports/popular?endDate=2026-02-30":         "endDate",
+		"/api/reports/popular?endDate=11/20/2026":         "endDate",
+		"/api/reports/review-activity?endDate=2026-11-22": "endDate",
+		"/api/reports/top-rated?minRatings=-1":            "minRatings",
+		"/api/reports/top-rated?minRatings=1001":          "minRatings",
+		"/api/reports/categories?limit=0":                 "limit",
+		"/api/reports/authors?minRatings=1001":            "minRatings",
+	} {
+		rec := h.do("GET", query, "", nil)
+		if rec.Code != 400 || errorCode(t, rec) != "VALIDATION_ERROR" || !strings.Contains(rec.Body.String(), `"field":"`+field+`"`) {
+			t.Errorf("%s: %d %s", query, rec.Code, rec.Body.String())
+		}
+	}
+
+	if rec := h.do("GET", "/api/reports/queries", "", nil); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"id":"q05"`) {
+		t.Fatalf("queries: %d %s", rec.Code, rec.Body.String())
 	}
 }

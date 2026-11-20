@@ -29,13 +29,13 @@ here, they win.
 | Area | Current state | Main gap |
 | --- | --- | --- |
 | Frontend | Next.js 15, React 19, TypeScript, Tailwind CSS 4 UI across 11 routes; `npm run lint` and `npx tsc --noEmit` pass | Pages use mock or empty-state data; the 8 declared service calls are not used; see `FRONTEND_PLAN.md` |
-| Authentication | Login writes a demo value to `localStorage` | No API authentication yet (backend Phase 3) |
-| Backend | Go module, minimal server (`/`, `/healthz`, `/readyz`) on `database/sql`, Dockerfile, sqlc-generated query code in `backend/internal/db` | No config, `pgxpool`, router, middleware, auth, or business endpoints (backend Phase 2 onward) |
+| Authentication | API: register, login, logout, and sessions (JWT in the `bm_session` cookie or a Bearer header) | The frontend login still writes a demo value to `localStorage` (Phase 8) |
+| Backend | Go API on `pgxpool` with chi router, middleware, auth, catalog, shelves/progress/history, reviews/ratings, and reports (`BACKEND_PLAN.md` Phases 2-7); unit, router, and integration tests | Google Books search and import (`501` until `conflict.md` #5 is answered); deployment (Phase 10) |
 | Database | Migrations `000001`-`000007` with constraints, triggers, functions, search and reporting indexes, Google Books source columns, and a locked rating-summary refresh; 69 named queries; seeds `001`-`004` (201 books, 51 users); verified on a clean PostgreSQL 18 database | Transaction and concurrency evidence for Phases 5-6 (`docs/evidence/`); no validation or performance evidence yet |
-| API contract | `docs/api/openapi.yaml` 0.2.0 (40 paths, 55 operations), `errors.md`, `examples.md` | Not implemented by the server yet |
+| API contract | `docs/api/openapi.yaml` 0.2.0, `errors.md`, `examples.md` | Implemented except the two Google Books operations |
 | Docker | `postgres`, `api`, and `tools` services (`migrate`, `seed`, `sqlc`) locally; RDS variant | No `web` service because `frontend/Dockerfile` does not exist |
 | Infrastructure | Terraform provisions RDS (PostgreSQL 18), a private security group, a Secrets Manager secret for the database credentials, and an EC2 IAM role/profile | No EC2 instance yet ([`AWS_PLAN.md`](AWS_PLAN.md)), custom network, or S3 resources |
-| Documentation | `README.md`, `DEVELOPMENT.md`, `BACKEND_PLAN.md`, `FRONTEND_PLAN.md`, `docs/`, database READMEs | No schema dictionary, query catalog, runbooks, or evidence files yet |
+| Documentation | `README.md`, `DEVELOPMENT.md`, `BACKEND_PLAN.md`, `FRONTEND_PLAN.md`, `docs/`, database READMEs, query catalog (`docs/database/query-catalog.md`), transaction and concurrency evidence (`docs/evidence/`) | No schema dictionary, runbooks, or validation/performance evidence yet |
 | Testing | Frontend lint and type check pass; database checks run in throwaway containers | No Go, frontend unit, end-to-end, concurrency, or performance test suites |
 | ER model | `ER_diagram.png` and its guide `ER_diagram.md`, committed, matching migrations `000001`-`000006` | Four cardinality labels at `BOOKS` on the activity relationships still read `1..1` (see `ER_diagram.md` §4) |
 

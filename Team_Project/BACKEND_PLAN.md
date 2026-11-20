@@ -19,7 +19,7 @@ the repository as it exists today, not against the earlier drafts.
 | Backend | `backend/cmd/server/main.go` with `/`, `/healthz`, `/readyz`; `database/sql` + pgx stdlib; Dockerfile | No auth, handlers, services, repositories, middleware, validation, or business endpoints |
 | Database | Migrations `000001`-`000006`, 66 named queries in `database/queries/`, reduced sqlc schema mirror, and seeds `001`-`004` | Phase 1 is verified on a clean database (2026-11-10); `000006` (book sources for Google Books) verified the same day; no schema dictionary or evidence package yet |
 | Docker | `postgres`, `api`, `migrate`, `seed`, and pinned `sqlc` (`tools`) services | No `web` service; API has no auth configuration |
-| Docs | `docs/api/openapi.yaml`, `errors.md`, and `examples.md`; root `README.md`, `PLAN.md`, `DEVELOPMENT.md`, `infra/README.md` | No schema dictionary, query catalog, or evidence package |
+| Docs | `docs/api/openapi.yaml`, `errors.md`, and `examples.md`; root `README.md`, `PLAN.md`, `DEVELOPMENT.md`, `infra/README.md` | No schema dictionary or evidence package (the query catalog and the transaction/concurrency evidence were added in Phases 5-7) |
 | Database engine | PostgreSQL 18 is implemented in the migration, Compose, and Terraform | The older Milestone Plan still says MySQL; that wording is superseded and must be corrected in docs |
 
 ### Frontend calls that already define part of the contract
@@ -521,12 +521,12 @@ Rules:
 | --- | --- | --- | --- |
 | `GET` | `/api/reports/reading-history` | yes | Dashboard report that matches the existing `ReadingReport` frontend type: books read, pages, favorite categories, recent activity |
 | `GET` | `/api/reports/user-stats` | yes | Detailed personal totals (completed, in progress, pages, average rating, reviews written) for the Reports page |
-| `GET` | `/api/reports/popular` | none | Most-saved/most-rated books inside a time window (`days`) |
+| `GET` | `/api/reports/popular` | none | Most-saved/most-rated books inside a time window (`days`, optional `endDate`) |
 | `GET` | `/api/reports/top-rated` | none | Highest-rated books filtered by a minimum rating count |
 | `GET` | `/api/reports/recommendations` | yes | Books suggested from categories the caller finished or rated highly, excluding already-read books |
-| `GET` | `/api/reports/authors` | none | Author leaderboard ranked by rating/reader activity |
-| `GET` | `/api/reports/categories` | none | Category leaderboard ranked by rating/reader activity |
-| `GET` | `/api/reports/review-activity` | none | Daily review and rating counts for trend charts |
+| `GET` | `/api/reports/authors` | none | Author leaderboard ranked by rating/reader activity (`minRatings`, default 5) |
+| `GET` | `/api/reports/categories` | none | Category leaderboard ranked by rating/reader activity (`minRatings`, default 5) |
+| `GET` | `/api/reports/review-activity` | none | Daily review and rating counts for trend charts (`days`, optional `endDate`) |
 | `GET` | `/api/reports/queries` | none | Returns the report catalog and static SQL text so the UI can show "(view SQL)" |
 
 `GET /api/reports/reading-history` response, matching the existing frontend
@@ -921,16 +921,16 @@ matching example result in `docs/database/query-catalog.md`.
 
 | ID | File | Purpose | Required SQL features |
 | --- | --- | --- | --- |
-| `q01` | `books.sql` | Library search by title, author, category, keyword (books already in PostgreSQL) | CTE, `EXISTS`, FTS, trigram, relevance rank, many-to-many joins |
-| `q02` | `books.sql` | Book detail with authors, categories, summary, recent reviews | Multiple joins, aggregates, `json_agg`, `LIMIT` subquery |
-| `q03` | `shelves.sql` | User shelf with metadata, progress, latest activity | Inner/outer joins, aggregate, `LEFT JOIN LATERAL` |
-| `q04` | `reports.sql` | Average ratings and counts by book/category/author | `GROUP BY`, `HAVING`, `FILTER` |
+| `q01` | `books.sql` | Library search by title, author, category, keyword (books already in PostgreSQL) | CTE, `EXISTS`, FTS, `ILIKE` served by trigram indexes, relevance rank, many-to-many joins |
+| `q02` | `books.sql` | Book detail with authors, categories, and summary (reviews come from `GET /api/books/{bookId}/reviews`) | Outer join, `json_agg` subqueries |
+| `q03` | `shelves.sql` | User shelf with metadata, progress, latest activity | Inner/outer joins, correlated `json_agg`/`max()` subqueries, `count(*) OVER ()` |
+| `q04` | `reports.sql` | Average ratings and counts by book/category/author | `GROUP BY`, `HAVING` |
 | `q05` | `reports.sql` | Popular books in a time window | CTEs with pre-aggregation to avoid join fan-out |
 | `q06` | `reports.sql` | Recommendations from highly rated/finished categories | CTE, `NOT EXISTS`, weighted ranking |
-| `q07` | `reports.sql` | User reading statistics | CTE, `CASE`, `SUM`, average rating |
-| `q08` | `reports.sql` | Author/category rankings | Window function `RANK() OVER` |
-| `q09` | `reports.sql` | Review activity per day | `date_trunc`, `generate_series`, `FULL OUTER JOIN` |
-| `q10` | `reports.sql` | Rating distribution per book | `GROUP BY`, `FILTER`, `CASE` |
+| `q07` | `reports.sql` | User reading statistics | CTEs, `UNION`, `SUM`, average rating |
+| `q08` | `reports.sql` | Author/category rankings | Window function `RANK() OVER`, `HAVING` minimum ratings |
+| `q09` | `reports.sql` | Review activity per day | `generate_series`, per-day pre-aggregation, outer joins |
+| `q10` | `ratings.sql` | Rating distribution per book | `GROUP BY` |
 
 Search query outline:
 
@@ -1271,10 +1271,12 @@ the new book.
 Implement queries `q04`-`q10` as read-only repository calls. Report handlers
 must:
 
-- Validate `limit` (1-100), `days` (1-365), and `minRatings` (0-1000).
+- Validate `limit` (1-100), `days` (1-365), `minRatings` (0-1000), and
+  `endDate` (`YYYY-MM-DD`, default today in UTC, at most one day ahead).
 - Return `[]` rather than `null` for empty results.
 - Include the SQL name in a response header or a `queryId` field so the report
-  page can link to `docs/database/query-catalog.md`.
+  page can link to `docs/database/query-catalog.md`. Implemented as the
+  `X-Query-Id` header.
 
 `GET /api/reports/queries` returns a static, embedded catalog:
 
@@ -1283,11 +1285,16 @@ must:
   {
     "id": "q05",
     "name": "Popular books",
-    "endpoint": "/api/reports/popular",
-    "sql": "WITH ..."
+    "description": "Books most shelved and rated within a window ...",
+    "endpoints": ["GET /api/reports/popular"],
+    "queries": ["PopularBooks"],
+    "sql": "-- name: PopularBooks :many\nWITH ..."
   }
 ]
 ```
+
+Some IDs back two endpoints (q07, q08) or several named queries, hence the
+arrays.
 
 Store the SQL text in Go constants generated from files under
 `database/queries/` at build time or copy it into a read-only reports package.
@@ -1822,14 +1829,39 @@ review, and summary unchanged) and 12 parallel ratings of one book.
 
 ### Phase 7 — Reports
 
-- [ ] `q03`-`q10` repository queries.
-- [ ] Reading-history report matching the frontend contract.
-- [ ] Popular, top-rated, recommendation, ranking, and activity endpoints.
-- [ ] Static report query catalog endpoint.
-- [ ] Report tests with deterministic seed data.
+- [x] `q03`-`q10` repository queries.
+- [x] Reading-history report matching the frontend contract.
+- [x] Popular, top-rated, recommendation, ranking, and activity endpoints.
+- [x] Static report query catalog endpoint.
+- [x] Report tests with deterministic seed data.
 
 **Exit:** Every report returns non-empty, validated results against the seed
 dataset and links to its SQL.
+
+Done 2026-11-20 (branch `feat/reports-phase7`). Verified on PostgreSQL 18 with
+migrations `000001`-`000007` and seeds `001`-`004`: every report is checked
+against independent SQL on the seed data, plus a fresh user whose activity must
+show up in each personal report. Expected seed output:
+`docs/database/query-catalog.md`.
+
+- **`X-Query-Id`** on every report response; `GET /api/reports/queries`
+  returns q01-q10 with the exact SQL from the generated sqlc code
+  (`internal/db/query_text.go`), so the text cannot drift from what runs.
+- **`endDate` (new, optional).** The seed clock is 2026-10-31, so a window that
+  always ends today would be empty in demos and tests a few weeks later.
+  `popular` and `review-activity` take `endDate` (default today, UTC); windows
+  are whole UTC days.
+- **`minRatings` on the author and category leaderboards (new, default 5).**
+  Without it a seed "Smoke Test" author with one rating ranked 4th, and one
+  5-star rating would top the board. Applied with `HAVING` before `RANK()`.
+- **Query fixes:** favorite categories and recommendations now count a book
+  rated 4-5 even when it is on no shelf, and recommendations leave out every
+  book the user already shelved, rated, or reviewed; rating averages are typed
+  `numeric(3,2)` so sqlc maps them to `float64`.
+- The reading-history report reads its three queries in one read-only
+  `REPEATABLE READ` transaction (one snapshot).
+- Only `GET /api/external/books` and `POST /api/books/import` still return
+  `501` (Google Books, waiting on `conflict.md` #5).
 
 ### Phase 8 — Frontend integration
 

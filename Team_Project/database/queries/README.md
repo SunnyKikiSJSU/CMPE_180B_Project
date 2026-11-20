@@ -17,19 +17,24 @@ and updating its repository call.
 | `progress.sql` | Progress/history reads |
 | `reviews.sql` | Review reads and owner-scoped writes |
 | `ratings.sql` | Rating summary, distribution, and owner-scoped writes |
-| `reports.sql` | Report queries q03-q10 |
+| `reports.sql` | Report queries q04-q09 |
 
 ## Required query catalog
+
+Purpose, parameters, definitions, and seed results:
+[`docs/database/query-catalog.md`](../../docs/database/query-catalog.md). The
+API serves the exact SQL at `GET /api/reports/queries`; the mapping below is
+`catalogSpec` in `backend/internal/services/reports.go`.
 
 | ID | Query | Endpoint |
 | --- | --- | --- |
 | `q01` | `SearchBooks` | `GET /api/books` |
-| `q02` | `GetBookByID` + `ListBookReviews` | `GET /api/books/{bookId}` |
+| `q02` | `GetBookByID` | `GET /api/books/{bookId}` |
 | `q03` | `ListShelfBooks` | `GET /api/shelves/{shelfId}/books` |
-| `q04` | `RatingSummaryByCategory`, `RatingSummaryByAuthor` | report data |
+| `q04` | `TopRatedBooks`, `RatingSummaryByCategory`, `RatingSummaryByAuthor` | `GET /api/reports/top-rated` (the category/author summaries are evidence SQL with no endpoint) |
 | `q05` | `PopularBooks` | `GET /api/reports/popular` |
 | `q06` | `RecommendedBooks` | `GET /api/reports/recommendations` |
-| `q07` | `UserReadingStats`, `ReadingReportSummary` | `GET /api/reports/user-stats`, `GET /api/reports/reading-history` |
+| `q07` | `UserReadingStats`, `ReadingReportSummary`, `FavoriteCategories`, `RecentReadingActivity` | `GET /api/reports/user-stats`, `GET /api/reports/reading-history` |
 | `q08` | `AuthorRankings`, `CategoryRankings` | `GET /api/reports/authors`, `GET /api/reports/categories` |
 | `q09` | `ReviewActivity` | `GET /api/reports/review-activity` |
 | `q10` | `GetRatingDistribution` | `GET /api/books/{bookId}/ratings` |

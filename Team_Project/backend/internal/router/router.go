@@ -21,6 +21,7 @@ type Deps struct {
 	Catalog handlers.Catalog
 	Reading handlers.Reading
 	Reviews handlers.Reviews
+	Reports handlers.Reports
 	Authn   middleware.Authenticator
 }
 
@@ -54,12 +55,12 @@ func New(d Deps) http.Handler {
 			pub.Get("/authors/{authorId}", d.Catalog.GetAuthor)
 			pub.Get("/categories", d.Catalog.ListCategories)
 			pub.Get("/categories/{categoryId}", d.Catalog.GetCategory)
-			pub.Get("/reports/popular", todo)
-			pub.Get("/reports/top-rated", todo)
-			pub.Get("/reports/authors", todo)
-			pub.Get("/reports/categories", todo)
-			pub.Get("/reports/review-activity", todo)
-			pub.Get("/reports/queries", todo)
+			pub.Get("/reports/popular", d.Reports.Popular)
+			pub.Get("/reports/top-rated", d.Reports.TopRated)
+			pub.Get("/reports/authors", d.Reports.Authors)
+			pub.Get("/reports/categories", d.Reports.Categories)
+			pub.Get("/reports/review-activity", d.Reports.ReviewActivity)
+			pub.Get("/reports/queries", d.Reports.Queries)
 		})
 
 		api.Group(func(open chi.Router) {
@@ -103,9 +104,9 @@ func New(d Deps) http.Handler {
 			priv.Patch("/reading-progress/{bookId}", d.Reading.UpdateProgress)
 			priv.Delete("/reading-progress/{bookId}", d.Reading.DeleteProgress)
 			priv.Get("/reading-history", d.Reading.History)
-			priv.Get("/reports/reading-history", todo)
-			priv.Get("/reports/user-stats", todo)
-			priv.Get("/reports/recommendations", todo)
+			priv.Get("/reports/reading-history", d.Reports.ReadingHistory)
+			priv.Get("/reports/user-stats", d.Reports.UserStats)
+			priv.Get("/reports/recommendations", d.Reports.Recommendations)
 		})
 	})
 	return r
