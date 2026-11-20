@@ -252,9 +252,10 @@ Browser --HTTP :80--> EC2 instance (Docker Compose: web + api) --> RDS PostgreSQ
 - One EC2 instance runs the Next.js (`web`) and Go (`api`) containers. Only
   `web` is exposed; it forwards `/api/*` to the API over the Compose network.
 - Application secrets (database password, `JWT_SECRET`, Google key) live in a
-  gitignored `.env` file. The application does not call Secrets Manager; the
-  secret the team's Terraform creates is only where the database password is
-  looked up. There is no load balancer or CloudWatch setup.
+  gitignored `.env` file. The deployed API can instead read the database
+  credentials at startup from the Secrets Manager secret the team's Terraform
+  creates (`DB_SECRET_ARN`, using the instance role). There is no load balancer
+  or CloudWatch setup.
 - After the MVP, Amazon S3 can store user avatars and covers for hand-added
   books.
 

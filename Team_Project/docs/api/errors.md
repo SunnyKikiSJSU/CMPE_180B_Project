@@ -43,6 +43,7 @@ and is also sent in the `X-Request-ID` response header.
 | `UPSTREAM_UNAVAILABLE` | 502 | Google Books failed, timed out, is over its quota, or returned an unusable response |
 | `DATABASE_UNAVAILABLE` | 503 | The pool cannot reach PostgreSQL |
 | `INTERNAL` | 500 | Unexpected failure; details are logged, not returned |
+| `NOT_IMPLEMENTED` | 501 | Development only: the route is in the contract but its phase is not built yet. Removed once every endpoint exists |
 
 ## Google Books mapping
 

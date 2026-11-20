@@ -1,5 +1,5 @@
 # Stage 1: Build. temporary environment used only to compile the code. It will be completely discarded in the final image.
-FROM golang:1.25-alpine AS build
+FROM golang:1.26-alpine AS build
 
 WORKDIR /src
 
