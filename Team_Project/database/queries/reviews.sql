@@ -79,10 +79,34 @@ RETURNING
     created_at,
     updated_at;
 
+-- Combined review + rating (PUT /api/books/{bookId}/review): creates or
+-- replaces the caller's review for the book. The title is replaced too (null
+-- clears it), because PUT sends the whole review.
+-- name: UpsertReview :one
+INSERT INTO reviews (user_id, book_id, title, review_text)
+VALUES (
+    sqlc.arg('user_id'),
+    sqlc.arg('book_id'),
+    sqlc.narg('title'),
+    sqlc.arg('review_text')
+)
+ON CONFLICT (user_id, book_id) DO UPDATE
+    SET title = EXCLUDED.title,
+        review_text = EXCLUDED.review_text
+RETURNING
+    review_id,
+    book_id,
+    user_id,
+    title,
+    review_text,
+    created_at,
+    updated_at;
+
 -- name: UpdateReview :one
+-- set_title = false keeps the current title; true writes title (NULL clears it).
 UPDATE reviews
 SET
-    title = coalesce(sqlc.narg('title'), title),
+    title = CASE WHEN sqlc.arg('set_title')::boolean THEN sqlc.narg('title') ELSE title END,
     review_text = coalesce(sqlc.narg('review_text'), review_text)
 WHERE review_id = sqlc.arg('review_id')
   AND user_id = sqlc.arg('user_id')

@@ -26,15 +26,18 @@ Go API for the Book Metaverse Portal.
 
 ## Endpoints
 
-Implemented (Phases 2-5): `/`, `/healthz`, `/readyz` (database ping, `503`
+Implemented (Phases 2-6): `/`, `/healthz`, `/readyz` (database ping, `503`
 when PostgreSQL is unreachable), `POST /api/auth/register`, `POST /api/auth/login`,
 `POST /api/auth/logout`, `GET /api/auth/me`, `GET|PATCH|DELETE /api/users/me`,
 `PUT /api/users/me/password`, `GET|POST /api/books`, `GET|PATCH /api/books/{bookId}`,
 `GET /api/authors`, `GET /api/authors/{authorId}`, `GET /api/categories`,
 `GET /api/categories/{categoryId}`, `/api/shelves` and `/api/shelves/{shelfId}`
 (list, create, rename, delete), `/api/shelves/{shelfId}/books` (list, add, move,
-remove), `/api/reading-progress` (list, get, update, delete), and
-`GET /api/reading-history`. Every other route in `docs/api/openapi.yaml` is
+remove), `/api/reading-progress` (list, get, update, delete),
+`GET /api/reading-history`, `GET|POST|DELETE /api/books/{bookId}/ratings`,
+`GET|POST /api/books/{bookId}/reviews`, `PUT /api/books/{bookId}/review` (rating
+and review in one transaction), `PATCH|DELETE /api/reviews/{reviewId}`, and
+`GET /api/users/me/reviews|ratings`. Every other route in `docs/api/openapi.yaml` is
 registered with its auth requirement and returns `501 NOT_IMPLEMENTED` until its
 phase is built. Unknown routes return `404 NOT_FOUND`.
 

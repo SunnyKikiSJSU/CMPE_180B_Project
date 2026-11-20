@@ -143,12 +143,17 @@ type Querier interface {
 	// is shown with Google attribution. The service returns 403 for them; the
 	// source filter is the database-side guard.
 	UpdateBook(ctx context.Context, arg UpdateBookParams) (UpdateBookRow, error)
+	// set_title = false keeps the current title; true writes title (NULL clears it).
 	UpdateReview(ctx context.Context, arg UpdateReviewParams) (UpdateReviewRow, error)
 	UpdateUser(ctx context.Context, arg UpdateUserParams) (UpdateUserRow, error)
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
 	UpsertAuthor(ctx context.Context, name string) (Author, error)
 	UpsertCategory(ctx context.Context, name string) (Category, error)
 	UpsertRating(ctx context.Context, arg UpsertRatingParams) (Rating, error)
+	// Combined review + rating (PUT /api/books/{bookId}/review): creates or
+	// replaces the caller's review for the book. The title is replaced too (null
+	// clears it), because PUT sends the whole review.
+	UpsertReview(ctx context.Context, arg UpsertReviewParams) (UpsertReviewRow, error)
 	UpsertUserProfile(ctx context.Context, arg UpsertUserProfileParams) (UserProfile, error)
 	UserReadingStats(ctx context.Context, userID uuid.UUID) (UserReadingStatsRow, error)
 }

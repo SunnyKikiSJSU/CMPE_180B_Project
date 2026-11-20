@@ -567,6 +567,7 @@ the same book twice. This rule must be documented in the report SQL and in
 | `000004_reporting_indexes` | Keeps report and dashboard queries off sequential scans as the dataset grows | Additional composite/partial indexes used by reports and dashboards |
 | `000005_progress_and_history_fixes` | Fixes progress transitions, stale-version SQLSTATE, and cascade deletes found in Phase 1 testing | Replaces three `000003` functions |
 | `000006_book_sources` | Lets imported Google books be told apart from seed and user-created books, and stores partial Google dates | `books.source`, `books.published_date_precision`, `books.imported_at`, four CHECK constraints, backfill |
+| `000007_rating_summary_locking` | Fixes a lost update when users rate or review the same book at the same time (found in Phase 6) | Replaces `fn_refresh_book_rating_summary`; recomputes every summary once |
 
 Each migration must have a matching `.down.sql` and must leave a clean database
 in the same state as a fresh `migrate up`.
@@ -735,8 +736,13 @@ Triggers:
 - `AFTER INSERT OR UPDATE OR DELETE ON reviews` calls the same function.
 - `AFTER INSERT ON books` inserts a zero summary row.
 
-The aggregate + `ON CONFLICT DO UPDATE` statement takes a row lock on the
-summary, so concurrent ratings serialize correctly under `READ COMMITTED`.
+**Corrected in Phase 6 (`000007`).** The single aggregate + `ON CONFLICT DO
+UPDATE` statement does *not* serialize concurrent ratings under `READ
+COMMITTED`: the aggregate is read from a snapshot taken before the statement
+waits for the summary row lock, so the second writer overwrites the summary
+with values that miss the first writer's rating. `000007` locks the summary
+row first (`SELECT ... FOR UPDATE`) and computes the aggregate in a later
+statement, which gets a fresh snapshot. See `docs/evidence/concurrency.md`.
 `NULL` handling uses `coalesce(NEW.book_id, OLD.book_id)`; `NEW`/`OLD` must be
 referenced through separate trigger functions or a guard because PostgreSQL
 does not allow `NEW` in a `DELETE` trigger. Create two small trigger functions
@@ -843,6 +849,21 @@ Backfill: rows whose `google_books_id` starts with `seed-book-` or
 `books_google_books_id_unique` and `books_isbn13_unique` constraints are the
 import deduplication keys; no new index is needed. `book_id` stays the only key
 that other tables reference.
+
+#### 000007 — Rating summary locking
+
+`fn_refresh_book_rating_summary(p_book_id)` now:
+
+1. returns if the book no longer exists (cascading deletes, as before);
+2. inserts a zero summary row if it is missing (`ON CONFLICT DO NOTHING`);
+3. locks that row with `PERFORM ... FOR UPDATE`;
+4. updates `average_rating`, `rating_count`, and `review_count` from `ratings`
+   and `reviews`.
+
+Step 4 runs after the lock is granted, so it sees every committed rating and
+review. Writers on the same book are serialized; different books do not block
+each other. The up migration recomputes every existing summary once; the down
+migration restores the `000003` definition.
 
 ### 5.2 Functions used by services
 
@@ -1768,16 +1789,36 @@ renaming a status shelf is `403`.
 
 ### Phase 6 — Reviews, ratings, and summaries
 
-- [ ] Rating summary endpoint and rating upsert/delete.
-- [ ] Review list/create/update/delete with ownership checks.
-- [ ] Combined `PUT /api/books/{bookId}/review` transaction.
-- [ ] Summary trigger verification for insert/update/delete.
-- [ ] Duplicate and invalid-input conflict mapping.
-- [ ] Review/rating concurrency evidence (multi-session SQL in
+- [x] Rating summary endpoint and rating upsert/delete.
+- [x] Review list/create/update/delete with ownership checks.
+- [x] Combined `PUT /api/books/{bookId}/review` transaction.
+- [x] Summary trigger verification for insert/update/delete.
+- [x] Duplicate and invalid-input conflict mapping.
+- [x] Review/rating concurrency evidence (multi-session SQL in
       `database/concurrency/`; an API-level integration test is optional).
 
 **Exit:** Duplicate reviews and invalid ratings are rejected; summary counts stay
 consistent after concurrent writes.
+
+Done 2026-11-20 (branch `feat/reviews-ratings-phase6`). Verified on PostgreSQL
+18 with migrations `000001`-`000007` and seeds `001`-`004`: unit, router, and
+integration tests, including a forced failure inside `PUT .../review` (rating,
+review, and summary unchanged) and 12 parallel ratings of one book.
+
+- **Lost update found and fixed.** Concurrent ratings of one book left the
+  summary short (2 ratings stored as 1 in SQL; 12 parallel API ratings stored
+  as 1, 4, or 6). Migration `000007` locks the summary row before reading the
+  aggregates; the API test fails without it and passes with it. Evidence:
+  `docs/evidence/concurrency.md`, scripts in `database/concurrency/`.
+- **Transaction evidence:** review + rating commit and rollback in
+  `docs/evidence/transactions.md` (`database/tests/transactions_phase6.sql`).
+- **Contract details now written down in `openapi.yaml`:** `PUT .../review`
+  replaces the whole review (an omitted title clears it) and keeps the current
+  rating when `rating` is omitted; `PATCH /api/reviews/{id}` keeps the title
+  when it is omitted and clears it when blank; another user's review is a 404.
+- `GET /api/users/me/reviews` and `/ratings` return the contract's `Review` and
+  `Rating` shapes, which carry `bookId` but no book title or cover (open item
+  in `conflict.md`).
 
 ### Phase 7 — Reports
 

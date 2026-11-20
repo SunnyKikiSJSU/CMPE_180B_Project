@@ -136,6 +136,36 @@ func (f *fakeReading) History(_ context.Context, _ uuid.UUID, _ *uuid.UUID, limi
 	return []domain.HistoryEvent{}, nil
 }
 
+// fakeReviews embeds the interface so tests implement only what they call.
+type fakeReviews struct {
+	handlers.ReviewService
+	rated     *int
+	saved     *int
+	savedBody string
+	sort      string
+}
+
+func (f *fakeReviews) Ratings(_ context.Context, bookID uuid.UUID) (domain.RatingSummaryResponse, error) {
+	return domain.RatingSummaryResponse{Distribution: map[string]int32{"1": 0}}, nil
+}
+
+func (f *fakeReviews) Rate(_ context.Context, userID, bookID uuid.UUID, value *int) (domain.Rating, error) {
+	f.rated = value
+	return domain.Rating{BookID: bookID, UserID: userID}, nil
+}
+
+func (f *fakeReviews) BookReviews(_ context.Context, _ uuid.UUID, sort string, _ domain.Page) ([]domain.Review, int64, error) {
+	f.sort = sort
+	return []domain.Review{}, 0, nil
+}
+
+func (f *fakeReviews) SaveReview(_ context.Context, _, _ uuid.UUID, rating *int, in services.ReviewInput) (domain.ReviewRatingResult, error) {
+	f.saved, f.savedBody = rating, in.Body
+	return domain.ReviewRatingResult{}, nil
+}
+
+func (f *fakeReviews) DeleteReview(context.Context, uuid.UUID, uuid.UUID) error { return nil }
+
 type fakePinger struct{ err error }
 
 func (f fakePinger) Ping(context.Context) error { return f.err }
@@ -147,11 +177,12 @@ type harness struct {
 	auth    *fakeAuth
 	catalog *fakeCatalog
 	reading *fakeReading
+	reviews *fakeReviews
 }
 
 func newHarness(dbErr error) harness {
 	tokens := auth.NewTokens([]byte("router-test-secret-0123456789abcdef"))
-	fa, fu, fc, fr := &fakeAuth{}, &fakeUsers{}, &fakeCatalog{}, &fakeReading{}
+	fa, fu, fc, fr, fv := &fakeAuth{}, &fakeUsers{}, &fakeCatalog{}, &fakeReading{}, &fakeReviews{}
 	authHandler := handlers.Auth{Service: fa, Tokens: tokens}
 	return harness{
 		handler: New(Deps{
@@ -160,9 +191,10 @@ func newHarness(dbErr error) harness {
 			Users:   handlers.Users{Service: fu, Auth: authHandler},
 			Catalog: handlers.Catalog{Service: fc},
 			Reading: handlers.Reading{Service: fr},
+			Reviews: handlers.Reviews{Service: fv},
 			Authn:   middleware.Authenticator{Tokens: tokens},
 		}),
-		tokens: tokens, users: fu, auth: fa, catalog: fc, reading: fr,
+		tokens: tokens, users: fu, auth: fa, catalog: fc, reading: fr, reviews: fv,
 	}
 }
 
@@ -326,7 +358,7 @@ func TestSkeletonAndUnknownRoutes(t *testing.T) {
 	if rec := h.do("GET", "/api/external/books", "", nil); rec.Code != 501 || errorCode(t, rec) != "NOT_IMPLEMENTED" {
 		t.Fatalf("public stub: %d", rec.Code)
 	}
-	if rec := h.do("GET", "/api/users/me/reviews", "", h.bearer()); rec.Code != 501 {
+	if rec := h.do("GET", "/api/reports/user-stats", "", h.bearer()); rec.Code != 501 {
 		t.Fatalf("protected stub: %d", rec.Code)
 	}
 	for _, route := range [][2]string{{"GET", "/api/admin"}, {"GET", "/debug/pprof"}, {"DELETE", "/api/books"}} {
@@ -433,6 +465,53 @@ func TestReadingRoutes(t *testing.T) {
 	for _, q := range []string{"limit=0", "limit=x", "limit=101", "bookId=nope"} {
 		if rec := h.do("GET", "/api/reading-history?"+q, "", h.bearer()); rec.Code != 400 {
 			t.Errorf("history %s: %d", q, rec.Code)
+		}
+	}
+}
+
+func TestReviewRoutes(t *testing.T) {
+	h := newHarness(nil)
+	book := "/api/books/" + uuid.NewString()
+	review := "/api/reviews/" + uuid.NewString()
+	for _, route := range [][2]string{
+		{"POST", book + "/ratings"}, {"DELETE", book + "/ratings"}, {"POST", book + "/reviews"}, {"PUT", book + "/review"},
+		{"PATCH", review}, {"DELETE", review}, {"GET", "/api/users/me/reviews"}, {"GET", "/api/users/me/ratings"},
+	} {
+		if rec := h.do(route[0], route[1], "{}", nil); rec.Code != 401 || errorCode(t, rec) != "UNAUTHENTICATED" {
+			t.Errorf("anonymous %s %s: %d", route[0], route[1], rec.Code)
+		}
+	}
+	// Ratings and reviews of a book are public.
+	if rec := h.do("GET", book+"/ratings", "", nil); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"distribution"`) {
+		t.Fatalf("public ratings: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := h.do("GET", book+"/reviews?sort=rating", "", nil); rec.Code != 200 || h.reviews.sort != "rating" || rec.Header().Get("X-Total-Count") != "0" {
+		t.Fatalf("public reviews: %d sort %q", rec.Code, h.reviews.sort)
+	}
+	if rec := h.do("GET", book+"/reviews?pageSize=500", "", nil); rec.Code != 400 {
+		t.Fatalf("reviews pageSize: %d", rec.Code)
+	}
+
+	if rec := h.do("POST", book+"/ratings", `{"value":4}`, h.bearer()); rec.Code != 200 || h.reviews.rated == nil || *h.reviews.rated != 4 {
+		t.Fatalf("rate: %d %v", rec.Code, h.reviews.rated)
+	}
+	for _, body := range []string{`{"value":"four"}`, `{"value":4,"stars":5}`, `not json`} {
+		if rec := h.do("POST", book+"/ratings", body, h.bearer()); rec.Code != 400 || errorCode(t, rec) != "VALIDATION_ERROR" {
+			t.Errorf("rate %s: %d", body, rec.Code)
+		}
+	}
+	if rec := h.do("PUT", book+"/review", `{"body":"No rating"}`, h.bearer()); rec.Code != 200 || h.reviews.saved != nil || h.reviews.savedBody != "No rating" {
+		t.Fatalf("put without rating: %d %v %q", rec.Code, h.reviews.saved, h.reviews.savedBody)
+	}
+	if rec := h.do("PUT", book+"/review", `{"rating":2,"body":"With rating"}`, h.bearer()); rec.Code != 200 || h.reviews.saved == nil || *h.reviews.saved != 2 {
+		t.Fatalf("put with rating: %d %v", rec.Code, h.reviews.saved)
+	}
+	if rec := h.do("DELETE", review, "", h.bearer()); rec.Code != 204 {
+		t.Fatalf("delete review: %d", rec.Code)
+	}
+	for _, path := range []string{"/api/reviews/not-a-uuid", "/api/books/not-a-uuid/ratings"} {
+		if rec := h.do("DELETE", path, "", h.bearer()); rec.Code != 404 {
+			t.Errorf("malformed id %s: %d", path, rec.Code)
 		}
 	}
 }
