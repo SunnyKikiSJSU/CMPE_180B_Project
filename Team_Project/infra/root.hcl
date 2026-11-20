@@ -10,8 +10,8 @@ locals {
 }
 
 # The team uses Terraform (the lock files list registry.terraform.io
-# providers). Terragrunt 1.x would otherwise run OpenTofu when it is installed.
-terraform_binary = "terraform"
+# providers). Terragrunt 1.x runs OpenTofu by default and ignores a
+# terraform_binary setting here, so set TG_TF_PATH=terraform (infra/README.md).
 
 remote_state {
   backend = "s3"
