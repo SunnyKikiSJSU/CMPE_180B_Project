@@ -31,7 +31,7 @@ here, they win.
 | Frontend | Next.js 15, React 19, TypeScript, Tailwind CSS 4 UI across 11 routes; `npm run lint` and `npx tsc --noEmit` pass | Pages use mock or empty-state data; the 8 declared service calls are not used; see `FRONTEND_PLAN.md` |
 | Authentication | Login writes a demo value to `localStorage` | No API authentication yet (backend Phase 3) |
 | Backend | Go module, minimal server (`/`, `/healthz`, `/readyz`) on `database/sql`, Dockerfile, sqlc-generated query code in `backend/internal/db` | No config, `pgxpool`, router, middleware, auth, or business endpoints (backend Phase 2 onward) |
-| Database | Migrations `000001`-`000006` with constraints, triggers, functions, search and reporting indexes, and Google Books source columns; 66 named queries; seeds `001`-`004` (201 books, 51 users); verified on a clean PostgreSQL 18 database | No validation, concurrency, or performance evidence scripts yet |
+| Database | Migrations `000001`-`000007` with constraints, triggers, functions, search and reporting indexes, Google Books source columns, and a locked rating-summary refresh; 69 named queries; seeds `001`-`004` (201 books, 51 users); verified on a clean PostgreSQL 18 database | Transaction and concurrency evidence for Phases 5-6 (`docs/evidence/`); no validation or performance evidence yet |
 | API contract | `docs/api/openapi.yaml` 0.2.0 (40 paths, 55 operations), `errors.md`, `examples.md` | Not implemented by the server yet |
 | Docker | `postgres`, `api`, and `tools` services (`migrate`, `seed`, `sqlc`) locally; RDS variant | No `web` service because `frontend/Dockerfile` does not exist |
 | Infrastructure | Terraform provisions RDS (PostgreSQL 18), a private security group, a Secrets Manager secret for the database credentials, and an EC2 IAM role/profile | No EC2 instance yet ([`AWS_PLAN.md`](AWS_PLAN.md)), custom network, or S3 resources |
@@ -69,7 +69,7 @@ Team_Project/
 |   `-- internal/db/            # sqlc-generated code (13 files), README.md
 |
 |-- database/
-|   |-- migrations/             # 000001-000006 up/down, README.md
+|   |-- migrations/             # 000001-000007 up/down, README.md
 |   |-- schema/schema.sql       # reduced mirror read by sqlc, README.md
 |   |-- queries/                # 10 .sql files, 66 named queries, README.md
 |   `-- seeds/                  # 001-004, README.md

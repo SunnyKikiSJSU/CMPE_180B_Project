@@ -20,6 +20,7 @@ type Deps struct {
 	Users   handlers.Users
 	Catalog handlers.Catalog
 	Reading handlers.Reading
+	Reviews handlers.Reviews
 	Authn   middleware.Authenticator
 }
 
@@ -47,8 +48,8 @@ func New(d Deps) http.Handler {
 			pub.Get("/books", d.Catalog.SearchBooks)
 			pub.Get("/external/books", todo)
 			pub.Get("/books/{bookId}", d.Catalog.GetBook)
-			pub.Get("/books/{bookId}/ratings", todo)
-			pub.Get("/books/{bookId}/reviews", todo)
+			pub.Get("/books/{bookId}/ratings", d.Reviews.Ratings)
+			pub.Get("/books/{bookId}/reviews", d.Reviews.BookReviews)
 			pub.Get("/authors", d.Catalog.ListAuthors)
 			pub.Get("/authors/{authorId}", d.Catalog.GetAuthor)
 			pub.Get("/categories", d.Catalog.ListCategories)
@@ -78,17 +79,17 @@ func New(d Deps) http.Handler {
 			priv.Delete("/users/me", d.Users.Delete)
 			priv.Put("/users/me/password", d.Users.ChangePassword)
 
-			priv.Get("/users/me/reviews", todo)
-			priv.Get("/users/me/ratings", todo)
+			priv.Get("/users/me/reviews", d.Reviews.MyReviews)
+			priv.Get("/users/me/ratings", d.Reviews.MyRatings)
 			priv.Post("/books", d.Catalog.CreateBook)
 			priv.Post("/books/import", todo)
 			priv.Patch("/books/{bookId}", d.Catalog.UpdateBook)
-			priv.Post("/books/{bookId}/ratings", todo)
-			priv.Delete("/books/{bookId}/ratings", todo)
-			priv.Post("/books/{bookId}/reviews", todo)
-			priv.Put("/books/{bookId}/review", todo)
-			priv.Patch("/reviews/{reviewId}", todo)
-			priv.Delete("/reviews/{reviewId}", todo)
+			priv.Post("/books/{bookId}/ratings", d.Reviews.Rate)
+			priv.Delete("/books/{bookId}/ratings", d.Reviews.DeleteRating)
+			priv.Post("/books/{bookId}/reviews", d.Reviews.CreateReview)
+			priv.Put("/books/{bookId}/review", d.Reviews.SaveReview)
+			priv.Patch("/reviews/{reviewId}", d.Reviews.UpdateReview)
+			priv.Delete("/reviews/{reviewId}", d.Reviews.DeleteReview)
 			priv.Get("/shelves", d.Reading.ListShelves)
 			priv.Post("/shelves", d.Reading.CreateShelf)
 			priv.Patch("/shelves/{shelfId}", d.Reading.RenameShelf)

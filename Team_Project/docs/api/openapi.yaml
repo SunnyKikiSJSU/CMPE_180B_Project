@@ -576,6 +576,7 @@ paths:
       tags: [Ratings]
       operationId: rateBook
       summary: Create or replace the caller's rating
+      description: Returns the stored rating with the book's updated summary. An unknown book returns 404.
       security:
         - cookieAuth: []
         - bearerAuth: []
@@ -671,7 +672,13 @@ paths:
       tags: [Reviews]
       operationId: upsertReviewAndRating
       summary: Save a rating and review together
-      description: One transaction updates the rating, the review, and the cached summary.
+      description: |
+        One transaction updates the rating, the review, and the cached summary;
+        if any step fails, none of them change. The review is created or fully
+        replaced: an omitted or blank `title` stores no title. An omitted
+        `rating` keeps the caller's current rating (`rating` in the result is
+        null when there is none). Validation errors name the `rating`, `title`,
+        or `body` field.
       security:
         - cookieAuth: []
         - bearerAuth: []
@@ -702,6 +709,10 @@ paths:
       tags: [Reviews]
       operationId: updateReview
       summary: Edit the caller's review
+      description: |
+        `body` is required. An omitted `title` keeps the current title; an
+        empty or blank `title` removes it. Another user's review returns 404,
+        the same as a missing one.
       security:
         - cookieAuth: []
         - bearerAuth: []
@@ -2181,7 +2192,9 @@ components:
         review:
           $ref: "#/components/schemas/Review"
         rating:
-          $ref: "#/components/schemas/Rating"
+          allOf:
+            - $ref: "#/components/schemas/Rating"
+          nullable: true
         summary:
           $ref: "#/components/schemas/RatingSummary"
 

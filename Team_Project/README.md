@@ -286,7 +286,7 @@ storage.
 - [x] PostgreSQL Docker Compose environment and `.env.example`.
 - [x] API service in Compose (minimal Go server with `/healthz` and `/readyz`).
 - [ ] Web service in Compose (needs `frontend/Dockerfile`).
-- [x] Database schema, migrations (`000001`-`000006`), and seed data.
+- [x] Database schema, migrations (`000001`-`000007`), and seed data.
 - [x] API contract (`docs/api/openapi.yaml`), including Google Books search and import.
 - [ ] Go API and authentication.
 - [ ] Next.js application.

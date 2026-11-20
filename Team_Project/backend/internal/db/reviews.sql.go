@@ -351,10 +351,10 @@ func (q *Queries) ListMyReviews(ctx context.Context, arg ListMyReviewsParams) ([
 const updateReview = `-- name: UpdateReview :one
 UPDATE reviews
 SET
-    title = coalesce($1, title),
-    review_text = coalesce($2, review_text)
-WHERE review_id = $3
-  AND user_id = $4
+    title = CASE WHEN $1::boolean THEN $2 ELSE title END,
+    review_text = coalesce($3, review_text)
+WHERE review_id = $4
+  AND user_id = $5
 RETURNING
     review_id,
     book_id,
@@ -366,6 +366,7 @@ RETURNING
 `
 
 type UpdateReviewParams struct {
+	SetTitle   bool
 	Title      pgtype.Text
 	ReviewText pgtype.Text
 	ReviewID   uuid.UUID
@@ -382,14 +383,77 @@ type UpdateReviewRow struct {
 	UpdatedAt  pgtype.Timestamptz
 }
 
+// set_title = false keeps the current title; true writes title (NULL clears it).
 func (q *Queries) UpdateReview(ctx context.Context, arg UpdateReviewParams) (UpdateReviewRow, error) {
 	row := q.db.QueryRow(ctx, updateReview,
+		arg.SetTitle,
 		arg.Title,
 		arg.ReviewText,
 		arg.ReviewID,
 		arg.UserID,
 	)
 	var i UpdateReviewRow
+	err := row.Scan(
+		&i.ReviewID,
+		&i.BookID,
+		&i.UserID,
+		&i.Title,
+		&i.ReviewText,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const upsertReview = `-- name: UpsertReview :one
+INSERT INTO reviews (user_id, book_id, title, review_text)
+VALUES (
+    $1,
+    $2,
+    $3,
+    $4
+)
+ON CONFLICT (user_id, book_id) DO UPDATE
+    SET title = EXCLUDED.title,
+        review_text = EXCLUDED.review_text
+RETURNING
+    review_id,
+    book_id,
+    user_id,
+    title,
+    review_text,
+    created_at,
+    updated_at
+`
+
+type UpsertReviewParams struct {
+	UserID     uuid.UUID
+	BookID     uuid.UUID
+	Title      pgtype.Text
+	ReviewText string
+}
+
+type UpsertReviewRow struct {
+	ReviewID   uuid.UUID
+	BookID     uuid.UUID
+	UserID     uuid.UUID
+	Title      pgtype.Text
+	ReviewText string
+	CreatedAt  pgtype.Timestamptz
+	UpdatedAt  pgtype.Timestamptz
+}
+
+// Combined review + rating (PUT /api/books/{bookId}/review): creates or
+// replaces the caller's review for the book. The title is replaced too (null
+// clears it), because PUT sends the whole review.
+func (q *Queries) UpsertReview(ctx context.Context, arg UpsertReviewParams) (UpsertReviewRow, error) {
+	row := q.db.QueryRow(ctx, upsertReview,
+		arg.UserID,
+		arg.BookID,
+		arg.Title,
+		arg.ReviewText,
+	)
+	var i UpsertReviewRow
 	err := row.Scan(
 		&i.ReviewID,
 		&i.BookID,

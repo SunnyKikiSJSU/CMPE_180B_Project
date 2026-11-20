@@ -3,21 +3,24 @@
 Required by `BACKEND_PLAN.md` §7.1 and §12. Each scenario runs in one
 transaction (`READ COMMITTED`) and is shown once committed and once rolled back
 after a failing step. The API runs the same functions in one `pgx.Tx` per
-request (`backend/internal/services/reading.go`).
+request (`backend/internal/services/reading.go` and `reviews.go`).
 
 | Scenario | Functions | Status |
 | --- | --- | --- |
 | Shelf move | `fn_move_book_to_shelf` | Recorded below (Phase 5) |
 | Progress completion | `fn_update_reading_progress` | Recorded below (Phase 5) |
-| Review + rating | rating upsert, review upsert, summary trigger | Phase 6 |
+| Review + rating | rating upsert, review upsert, summary trigger | Recorded below (Phase 6) |
 
 ## How to reproduce
 
-On a database with migrations `000001`-`000006` and seeds `001`-`004`:
+On a database with migrations `000001`-`000007` and seeds `001`-`004`:
 
 ```bash
 psql "$DATABASE_URL" -v ON_ERROR_STOP=0 -f database/tests/transactions_phase5.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=0 -f database/tests/transactions_phase6.sql
 ```
+
+The Phase 6 script creates its own user and book and deletes both at the end.
 
 The script creates a throwaway user (its four status shelves come from the
 `users_create_defaults` trigger), uses the first seeded book with a page count,
@@ -40,13 +43,28 @@ the intended failing steps.
 - **2c, stale version:** an old `version` raises `BM001` (`409 STALE_VERSION` in
   the API) and changes nothing.
 
+- **3a, review + rating committed:** rating 4 and a review in one
+  transaction; the triggers set the summary to 4.00, 1 rating, 1 review.
+- **3b, review + rating rolled back:** the rating changes to 1 and the trigger
+  rewrites the summary to 1.00 inside the transaction; the review step then
+  fails (`23514`, `reviews_text_not_blank`) and `ROLLBACK` restores the rating
+  and the summary written by the trigger, not only the rows the transaction
+  wrote directly.
+
+Concurrent writes to the same summary are covered in
+[concurrency.md](concurrency.md).
+
 The API-level counterparts are integration tests in
 `backend/internal/integration/reading_integration_test.go`
 (`TestShelfMovesKeepProgressAndHistoryInStep`, `TestProgressUpdates`, and
 `TestConcurrentProgressUpdates`, where two requests with the same version give
-one `200` and one `409`).
+one `200` and one `409`) and
+`backend/internal/integration/reviews_integration_test.go`
+(`TestSaveReviewAndRatingInOneTransaction` forces the review step of
+`PUT /api/books/{bookId}/review` to fail after the rating step and checks that
+the rating, review, and summary are unchanged).
 
-## Recorded output (PostgreSQL 18, 2026-11-19)
+## Recorded output, Phase 5 (PostgreSQL 18, 2026-11-19)
 
 ```text
 === State query used after each step ===
@@ -135,4 +153,36 @@ CONTEXT:  PL/pgSQL function fn_update_reading_progress(uuid,uuid,integer,text,in
 -----------+--------------+------------------+---------+----------+--------------
  completed |          563 |           100.00 |       5 | finished |            4
 
+```
+
+## Recorded output, Phase 6 (PostgreSQL 18, 2026-11-20)
+
+```text
+=== State query used after each step ===
+New book (summary row created by the books_create_summary trigger):
+ my_rating | my_review | average_rating | rating_count | review_count 
+-----------+-----------+----------------+--------------+--------------
+           |           |           0.00 |            0 |            0
+
+
+=== Scenario 3a: review + rating, COMMIT ===
+Rate 4 and write a review in one transaction; the triggers refresh the summary.
+ my_rating |          my_review          | average_rating | rating_count | review_count 
+-----------+-----------------------------+----------------+--------------+--------------
+         4 | A careful, well-paced book. |           4.00 |            1 |            1
+
+
+=== Scenario 3b: review + rating, ROLLBACK ===
+Change the rating to 1, then the review step fails (blank text, CHECK reviews_text_not_blank).
+Inside the transaction, after the rating step (the trigger already rewrote the summary):
+ my_rating |          my_review          | average_rating | rating_count | review_count 
+-----------+-----------------------------+----------------+--------------+--------------
+         1 | A careful, well-paced book. |           1.00 |            1 |            1
+
+ERROR:  new row for relation "reviews" violates check constraint "reviews_text_not_blank"
+DETAIL:  Failing row contains (456eacba-7fe6-4d5e-a470-5964b91a3e85, c08d4427-04fb-430e-a6df-ff8f957ad30b, abe6fcb2-cf1a-4aaa-bf6a-b0e5e5adb00a, null,    , 2026-11-20 08:11:10.496279+00, 2026-11-20 08:11:10.496279+00).
+After ROLLBACK (same as after 3a: rating 4, original review, summary 4.00 / 1 / 1):
+ my_rating |          my_review          | average_rating | rating_count | review_count 
+-----------+-----------------------------+----------------+--------------+--------------
+         4 | A careful, well-paced book. |           4.00 |            1 |            1
 ```

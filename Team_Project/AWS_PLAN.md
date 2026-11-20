@@ -61,7 +61,7 @@ The JSON has `host`, `dbname`, `username`, and `password`. Copy them into
 | --- | --- | --- |
 | `docker-compose-rdbs.yml` | `[x]` | `api`, `migrate`, `seed`, and a `psql` client pointed at `RDS_*` values with `sslmode=require` |
 | `./scripts/dev.sh rds` | `[x]` | Builds `RDS_DATABASE_URL`, runs migrations and seeds, starts the API, waits for `/readyz` |
-| Migrations and seeds | `[x]` | `000001`-`000006` and seeds `001`-`004` verified on clean PostgreSQL 18 locally; not yet recorded against RDS |
+| Migrations and seeds | `[x]` | `000001`-`000007` and seeds `001`-`004` verified on clean PostgreSQL 18 locally; not yet recorded against RDS |
 | `.env.example` RDS values | `[x]` | `RDS_DB=appdb` and `RDS_USER=appadmin` match the Terraform defaults; comments say where each value comes from (a Terraform output or the secret) |
 
 ### 1.3 Optional data-tier hardening
