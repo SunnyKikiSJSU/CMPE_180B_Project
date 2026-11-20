@@ -45,10 +45,11 @@ func setup(t *testing.T) (http.Handler, *pgxpool.Pool) {
 	users := repository.NewUsers(pool)
 	authHandler := handlers.Auth{Service: services.NewAuth(users), Tokens: tokens}
 	return router.New(router.Deps{
-		Health: handlers.Health{DB: pool},
-		Auth:   authHandler,
-		Users:  handlers.Users{Service: services.NewUsers(users), Auth: authHandler},
-		Authn:  middleware.Authenticator{Tokens: tokens},
+		Health:  handlers.Health{DB: pool},
+		Auth:    authHandler,
+		Users:   handlers.Users{Service: services.NewUsers(users), Auth: authHandler},
+		Catalog: handlers.Catalog{Service: services.NewCatalog(repository.NewCatalog(pool))},
+		Authn:   middleware.Authenticator{Tokens: tokens},
 	}), pool
 }
 

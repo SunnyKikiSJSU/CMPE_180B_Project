@@ -55,11 +55,16 @@ func validateText(field, label, s string, minRunes, maxRunes int, multiline bool
 }
 
 func validateAvatarURL(raw string) (string, error) {
+	return validateURL("avatarUrl", "Avatar URL", raw)
+}
+
+// validateURL accepts absolute http(s) URLs without credentials.
+func validateURL(field, label, raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	parsed, err := url.Parse(raw)
 	if raw == "" || len(raw) > maxAvatarURLBytes || err != nil || parsed.Host == "" ||
 		(parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.User != nil {
-		return "", domain.Validation("avatarUrl", "Avatar URL must be an http or https address.")
+		return "", domain.Validation(field, label+" must be an http or https address.")
 	}
 	return raw, nil
 }

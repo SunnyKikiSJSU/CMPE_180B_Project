@@ -136,13 +136,16 @@ SELECT
     b.book_id,
     b.title,
     b.cover_url,
-    (
-        SELECT a.name
-        FROM book_authors ba
-        JOIN authors a ON a.author_id = ba.author_id
-        WHERE ba.book_id = b.book_id
-        ORDER BY a.name
-        LIMIT 1
+    coalesce(
+        (
+            SELECT a.name
+            FROM book_authors ba
+            JOIN authors a ON a.author_id = ba.author_id
+            WHERE ba.book_id = b.book_id
+            ORDER BY a.name
+            LIMIT 1
+        ),
+        'Unknown author'
     )::text AS primary_author,
     coalesce(sc.shelf_adds, 0)::int AS shelf_adds,
     coalesce(rc.ratings, 0)::int AS ratings,
@@ -161,13 +164,16 @@ SELECT
     b.book_id,
     b.title,
     b.cover_url,
-    (
-        SELECT a.name
-        FROM book_authors ba
-        JOIN authors a ON a.author_id = ba.author_id
-        WHERE ba.book_id = b.book_id
-        ORDER BY a.name
-        LIMIT 1
+    coalesce(
+        (
+            SELECT a.name
+            FROM book_authors ba
+            JOIN authors a ON a.author_id = ba.author_id
+            WHERE ba.book_id = b.book_id
+            ORDER BY a.name
+            LIMIT 1
+        ),
+        'Unknown author'
     )::text AS primary_author,
     s.average_rating,
     s.rating_count
@@ -218,13 +224,16 @@ SELECT
     b.book_id,
     b.title,
     b.cover_url,
-    (
-        SELECT a.name
-        FROM book_authors ba
-        JOIN authors a ON a.author_id = ba.author_id
-        WHERE ba.book_id = b.book_id
-        ORDER BY a.name
-        LIMIT 1
+    coalesce(
+        (
+            SELECT a.name
+            FROM book_authors ba
+            JOIN authors a ON a.author_id = ba.author_id
+            WHERE ba.book_id = b.book_id
+            ORDER BY a.name
+            LIMIT 1
+        ),
+        'Unknown author'
     )::text AS primary_author,
     sc.score,
     coalesce(s.average_rating, 0)::numeric(3, 2) AS average_rating

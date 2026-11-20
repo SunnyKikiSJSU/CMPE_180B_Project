@@ -15,10 +15,11 @@ import (
 )
 
 type Deps struct {
-	Health handlers.Health
-	Auth   handlers.Auth
-	Users  handlers.Users
-	Authn  middleware.Authenticator
+	Health  handlers.Health
+	Auth    handlers.Auth
+	Users   handlers.Users
+	Catalog handlers.Catalog
+	Authn   middleware.Authenticator
 }
 
 func New(d Deps) http.Handler {
@@ -42,15 +43,15 @@ func New(d Deps) http.Handler {
 		// later phase uses it (for example myProgress on a book).
 		api.Group(func(pub chi.Router) {
 			pub.Use(d.Authn.Optional)
-			pub.Get("/books", todo)
+			pub.Get("/books", d.Catalog.SearchBooks)
 			pub.Get("/external/books", todo)
-			pub.Get("/books/{bookId}", todo)
+			pub.Get("/books/{bookId}", d.Catalog.GetBook)
 			pub.Get("/books/{bookId}/ratings", todo)
 			pub.Get("/books/{bookId}/reviews", todo)
-			pub.Get("/authors", todo)
-			pub.Get("/authors/{authorId}", todo)
-			pub.Get("/categories", todo)
-			pub.Get("/categories/{categoryId}", todo)
+			pub.Get("/authors", d.Catalog.ListAuthors)
+			pub.Get("/authors/{authorId}", d.Catalog.GetAuthor)
+			pub.Get("/categories", d.Catalog.ListCategories)
+			pub.Get("/categories/{categoryId}", d.Catalog.GetCategory)
 			pub.Get("/reports/popular", todo)
 			pub.Get("/reports/top-rated", todo)
 			pub.Get("/reports/authors", todo)
@@ -78,9 +79,9 @@ func New(d Deps) http.Handler {
 
 			priv.Get("/users/me/reviews", todo)
 			priv.Get("/users/me/ratings", todo)
-			priv.Post("/books", todo)
+			priv.Post("/books", d.Catalog.CreateBook)
 			priv.Post("/books/import", todo)
-			priv.Patch("/books/{bookId}", todo)
+			priv.Patch("/books/{bookId}", d.Catalog.UpdateBook)
 			priv.Post("/books/{bookId}/ratings", todo)
 			priv.Delete("/books/{bookId}/ratings", todo)
 			priv.Post("/books/{bookId}/reviews", todo)

@@ -1712,12 +1712,12 @@ Go 1.26 because Go 1.25 no longer receives security fixes, and `pgx` to 5.9.2
 
 ### Phase 4 — Catalog and search
 
-- [ ] Library search with filters, sort, pagination, and total count.
-- [ ] Book detail with authors, categories, summary, user context, `source`,
+- [x] Library search with filters, sort, pagination, and total count.
+- [x] Book detail with authors, categories, summary, user context, `source`,
       and `infoLink`.
-- [ ] Book create (`source = user`) and update (`403` for Google rows) with
+- [x] Book create (`source = user`) and update (`403` for Google rows) with
       author/category upserts.
-- [ ] Authors and categories endpoints.
+- [x] Authors and categories endpoints.
 - [ ] `internal/googlebooks` client and normalizer with table tests against an
       `httptest` fake.
 - [ ] `GET /api/external/books` with `bookId` marking and error mapping.
@@ -1725,6 +1725,16 @@ Go 1.26 because Go 1.25 no longer receives security fixes, and `pgx` to 5.9.2
       concurrent-import check (two parallel requests return the same `id`).
 - [ ] Search checks for title, author, category, and keyword (SQL evidence in
       `docs/database/query-catalog.md`; integration tests optional).
+
+Library part done 2026-11-19 (branch `feat/catalog-phase4`), verified with
+integration tests against the seeded database. Fix found on the way: every
+query that returned `primary_author` gave NULL for a book without authors,
+which failed to scan into the generated `string` and made `POST /api/books`
+without authors (and later Google volumes without authors) return 500. The
+nine queries now use `coalesce(..., 'Unknown author')`, as the contract
+specifies; sqlc was regenerated with the pinned 1.27.0 image (no Go type
+changes). Google Books search and import (the next three items) wait for
+conflict #5.
 
 **Exit:** `q01` and `q02` return validated results; a book with multiple
 authors/categories renders completely; a Google result can be imported once

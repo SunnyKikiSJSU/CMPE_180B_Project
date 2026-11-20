@@ -215,13 +215,16 @@ SELECT
     b.cover_url,
     b.source,
     b.published_date_precision,
-    (
-        SELECT a.name
-        FROM book_authors ba
-        JOIN authors a ON a.author_id = ba.author_id
-        WHERE ba.book_id = b.book_id
-        ORDER BY a.name
-        LIMIT 1
+    coalesce(
+        (
+            SELECT a.name
+            FROM book_authors ba
+            JOIN authors a ON a.author_id = ba.author_id
+            WHERE ba.book_id = b.book_id
+            ORDER BY a.name
+            LIMIT 1
+        ),
+        'Unknown author'
     )::text AS primary_author,
     coalesce(
         (
@@ -513,13 +516,16 @@ SELECT
     b.cover_url,
     b.source,
     b.published_date_precision,
-    (
-        SELECT a.name
-        FROM book_authors ba
-        JOIN authors a ON a.author_id = ba.author_id
-        WHERE ba.book_id = b.book_id
-        ORDER BY a.name
-        LIMIT 1
+    coalesce(
+        (
+            SELECT a.name
+            FROM book_authors ba
+            JOIN authors a ON a.author_id = ba.author_id
+            WHERE ba.book_id = b.book_id
+            ORDER BY a.name
+            LIMIT 1
+        ),
+        'Unknown author'
     )::text AS primary_author,
     coalesce(
         (

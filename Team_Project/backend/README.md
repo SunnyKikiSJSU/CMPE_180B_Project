@@ -26,10 +26,12 @@ Go API for the Book Metaverse Portal.
 
 ## Endpoints
 
-Implemented (Phases 2 and 3): `/`, `/healthz`, `/readyz` (database ping, `503`
+Implemented (Phases 2-4): `/`, `/healthz`, `/readyz` (database ping, `503`
 when PostgreSQL is unreachable), `POST /api/auth/register`, `POST /api/auth/login`,
-`POST /api/auth/logout`, `GET /api/auth/me`, `GET|PATCH|DELETE /api/users/me`, and
-`PUT /api/users/me/password`. Every other route in `docs/api/openapi.yaml` is
+`POST /api/auth/logout`, `GET /api/auth/me`, `GET|PATCH|DELETE /api/users/me`,
+`PUT /api/users/me/password`, `GET|POST /api/books`, `GET|PATCH /api/books/{bookId}`,
+`GET /api/authors`, `GET /api/authors/{authorId}`, `GET /api/categories`, and
+`GET /api/categories/{categoryId}`. Every other route in `docs/api/openapi.yaml` is
 registered with its auth requirement and returns `501 NOT_IMPLEMENTED` until its
 phase is built. Unknown routes return `404 NOT_FOUND`.
 
@@ -38,8 +40,24 @@ Sessions: the `bm_session` cookie (`HttpOnly; SameSite=Lax; Path=/`, plus
 and tests. Logout clears the cookie; a copied Bearer token stays valid until it
 expires.
 
-`PATCH /api/users/me`: a missing or `null` field is left unchanged (the queries
-use `coalesce`), so profile fields cannot be cleared to `null` yet.
+`PATCH /api/users/me` and `PATCH /api/books/{bookId}`: a missing or `null` field
+is left unchanged (the queries use `coalesce`), so fields cannot be cleared to
+`null` yet.
+
+Catalog notes:
+
+- Lists are raw JSON arrays with `X-Total-Count`, `X-Page`, and `X-Page-Size`
+  (`page` 1-10000, `pageSize` 1-100, default 20). A page past the end returns
+  `[]` with the real total.
+- `GET /api/books` without `q` sorts newest first; with `q`, by relevance
+  (full-text rank, then title). `q` and `title` are at most 200 characters.
+- Author and category detail return one page of `books`; the pagination
+  headers page those books.
+- `GET /api/books/{bookId}` adds `myProgress` and `myRating` for a signed-in
+  caller (with `Cache-Control: no-store`).
+- `POST /api/books` creates `source = user` books; author and category names
+  are trimmed and de-duplicated case-insensitively (at most 20 each).
+  A duplicate ISBN-13 is `409`. `PATCH` on a `source = google` book is `403`.
 
 ## Configuration
 
