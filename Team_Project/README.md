@@ -25,7 +25,7 @@ flowchart LR
     Browser[Browser]
 
     subgraph Presentation [Presentation tier]
-        Web["Next.js 15<br/>React · TypeScript · Tailwind"]
+        Web["Next.js 16<br/>React · TypeScript · Tailwind"]
     end
 
     subgraph Application [Application tier]

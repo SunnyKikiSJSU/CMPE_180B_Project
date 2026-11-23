@@ -15,7 +15,7 @@ the repository as it exists today, not against the earlier drafts.
 
 | Area | What exists now | What is missing |
 | --- | --- | --- |
-| Frontend | Next.js 15 app with 11 routes, shared components, `bookService`, `readingService`, `apiClient`, and domain types | Pages render static/empty states; no TanStack Query provider; login writes `localStorage`; only 8 API calls are declared |
+| Frontend | Next.js app (16.4 since 2026-11-23) with 11 routes, shared components, `bookService`, `readingService`, `apiClient`, and domain types | Pages render static/empty states; no TanStack Query provider; login writes `localStorage`; only 8 API calls are declared |
 | Backend | `backend/cmd/server/main.go` with `/`, `/healthz`, `/readyz`; `database/sql` + pgx stdlib; Dockerfile | No auth, handlers, services, repositories, middleware, validation, or business endpoints |
 | Database | Migrations `000001`-`000006`, 66 named queries in `database/queries/`, reduced sqlc schema mirror, and seeds `001`-`004` | Phase 1 is verified on a clean database (2026-11-10); `000006` (book sources for Google Books) verified the same day; no schema dictionary or evidence package yet |
 | Docker | `postgres`, `api`, `migrate`, `seed`, and pinned `sqlc` (`tools`) services | No `web` service; API has no auth configuration |

@@ -1,6 +1,7 @@
 # Book Metaverse Frontend
 
-Next.js, TypeScript, Tailwind CSS, and TanStack Query frontend for the Book Metaverse Portal.
+Next.js 16, TypeScript, Tailwind CSS, and TanStack Query frontend for the Book Metaverse Portal.
+Requires Node.js 20.9 or later.
 
 ## Local development
 
