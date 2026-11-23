@@ -27,3 +27,12 @@ export function formatRating(average: number | undefined, count: number | undefi
   if (!count) return "No ratings yet";
   return `${(average ?? 0).toFixed(1)} (${count} ${count === 1 ? "rating" : "ratings"})`;
 }
+
+const shortDate = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" });
+
+/** "23 Nov 2026" for an RFC 3339 timestamp, in the reader's time zone. */
+export function formatDate(timestamp: string | null | undefined): string {
+  if (!timestamp) return "";
+  const d = new Date(timestamp);
+  return Number.isNaN(d.getTime()) ? "" : shortDate.format(d);
+}

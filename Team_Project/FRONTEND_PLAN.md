@@ -701,8 +701,8 @@ card while the API is down. Notes:
 **Exit:** a Google result can be found, imported idempotently, and shelved; the
 library tab finds the imported book.
 
-Done 2026-11-23 (branch `feat/frontend-catalog`) except "shelved": the shelf
-picker is on the book detail page, which is F4. Checked in a browser against
+Done 2026-11-23 (branch `feat/frontend-catalog`); "shelved" was finished in F4,
+where the shelf controls are on the book page. Checked in a browser against
 the Go API, PostgreSQL with seeds, and live Open Library: signed-out search on
 `/explore` with "Sign in to save" returning to the same search; import from
 `/explore` and `/catalog` (a double click sent one `POST /api/books/import`,
@@ -735,21 +735,53 @@ Library unreachable (502 banner and "Search the library instead"); and a
 - [x] `/books/[bookId]` route
 - [x] Detail fetch with authors, categories, summary, description
 - [x] Attribution, `infoLink`, and date-by-precision rendering
-- [ ] Shelf picker (import-on-action)
-- [ ] Progress form (page + status + version)
-- [ ] Rating control (summary refresh)
-- [ ] Review form via `PUT /api/books/{bookId}/review` (rating + review in one
+- [x] Shelf picker (import-on-action)
+- [x] Progress form (page + status + version)
+- [x] Rating control (summary refresh)
+- [x] Review form via `PUT /api/books/{bookId}/review` (rating + review in one
       transaction); edit and delete
-- [ ] Percentage-only progress when `totalPages` is 0
+- [x] Percentage-only progress when `totalPages` is 0
 
 **Exit:** every activity promised by the report/readme can be performed from the
 detail page.
 
-The read-only detail page was built with F3 so imports have somewhere to land:
-authors link to the library filtered by author, categories to the library
-filtered by category, and a "Your reading" panel shows `myProgress` and
-`myRating`. Missing and malformed IDs both show "We could not find that book"
-(the API returns 404 for both).
+The read-only page came with F3; the actions were done 2026-11-23 (branch
+`feat/frontend-book-actions`). Checked in a browser against the Go API and
+PostgreSQL with seeds: setting each status (the book moves to its status
+shelf, and history shows "Added as Want to read", "Want to read → Reading");
+saving a page and an out-of-range page; a **stale version** (the page was
+changed from a second client with curl; saving from the browser got 409, the
+latest progress was loaded, and the message stayed on screen); reaching the
+last page (the database marks it Finished); a book without a page count
+(percentage form); adding and removing a custom shelf; rating by click and
+with the arrow keys; posting, editing, and deleting a review with its rating
+(one `PUT`); and removing the book from the shelves. Notes:
+
+- **Status is one control.** The four status shelves map to the four reading
+  statuses, and `PATCH /api/reading-progress/{bookId}` with `status` creates
+  the progress row when needed and moves the book to the matching shelf
+  (`fn_update_reading_progress`), so the page uses it for both status and page
+  updates, always with `version`. "Remove from my shelves" is
+  `DELETE /api/reading-progress/{bookId}`; custom shelves are kept.
+- **Custom shelves** are checkboxes. The API has no "shelves holding this book"
+  call, so the page reads each custom shelf's books (100 per page until found).
+  Readers have few custom shelves; a large library would want an API field.
+  Adding to a custom shelf goes through `fn_move_book_to_shelf`, which also
+  creates a Want to read progress row when there is none, bumps `version`, and
+  writes a `shelf_moved` history row; the page stores the returned progress
+  so the next save does not hit a false STALE_VERSION (found in review).
+- **The reader's review** is found by paging `GET /api/users/me/reviews` the
+  same way; it is shown above everyone else's and left out of their list.
+- Saving a review without picking stars keeps the existing rating (the API
+  leaves it alone); "Clear rating" removes it. Deleting a review keeps the
+  rating.
+- The progress mutations are held by the panel, not the forms: a new version
+  remounts the form with the latest values, and the STALE_VERSION message must
+  survive that.
+- The stars stay focusable while saving (`aria-disabled`, not `disabled`), so
+  arrow keys do not lose focus.
+- No optimistic updates (decision in §5.8): a checkbox or star changes after
+  the API confirms, which takes a fraction of a second locally.
 
 ### Phase F5 — Shelves and progress
 
