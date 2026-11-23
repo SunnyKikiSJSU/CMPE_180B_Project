@@ -17,7 +17,7 @@ dependency "app_sg" {
 
   # Only so `plan` and `validate` work before app-sg exists; never for apply.
   mock_outputs                            = { security_group_id = "sg-00000000000000000" }
-  mock_outputs_allowed_terraform_commands = ["validate", "plan"]
+  mock_outputs_allowed_terraform_commands = ["init", "validate", "plan"]
 }
 
 inputs = {

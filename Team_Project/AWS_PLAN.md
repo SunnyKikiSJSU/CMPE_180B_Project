@@ -8,11 +8,12 @@ is possible after the MVP.
 This is a course project, so the plan is deliberately small: one RDS database,
 one EC2 instance, plain HTTP, and secrets in the gitignored `.env` file.
 
-- **Last updated:** 2026-11-12
-- **Terraform + Terragrunt:** [`infra/`](infra/) (AWS provider `~> 5.0`, region `us-west-2`);
+- **Last updated:** 2026-11-20 (infrastructure applied in us-east-2; see [`infra/README.md`](infra/README.md#current-deployment))
+- **Terraform + Terragrunt:** [`infra/`](infra/) (AWS provider `~> 5.0`, region `us-east-2`, the only region the course organization allows);
   units `app-sg` → `data` → `app` under `infra/live/dev` (restructured 2026-11-19),
-  written by the team. This plan does not remove or change any existing
-  resource; it only lists additions.
+  written by the team. Applied 2026-11-20 (20 resources). The console-created
+  database `book-metaverse-database` is not managed by Terraform and was not
+  changed.
 - **Deployment target:** one EC2 instance running Docker Compose against private
   RDS (decided 2026-11-12; see §3)
 
@@ -21,12 +22,12 @@ one EC2 instance, plain HTTP, and secrets in the gitignored `.env` file.
 | Mark | Meaning |
 | --- | --- |
 | `[x]` | Written and checked (`terraform validate` and `fmt -check` passed 2026-11-12) |
-| `[?]` | Written, but whether it has been applied to the AWS account is not recorded in the repo |
+| `[?]` | Written, but not applied (none left as of 2026-11-20) |
 | `[ ]` | Not started |
 
-Terraform state is git-ignored, so the repository cannot show whether
-`terraform apply` has been run. Whoever applied it should replace the `[?]`
-marks below and note the date.
+Everything below marked `[x]` was applied on 2026-11-20 with Terragrunt
+(state in S3 bucket `cmpe180b-tfstate-869093593722`). There was no earlier
+Terraform state: the team's first database was created in the console.
 
 ---
 
@@ -36,11 +37,11 @@ marks below and note the date.
 
 | Item | Resource | State | Notes |
 | --- | --- | --- | --- |
-| RDS for PostgreSQL 18 | `aws_db_instance.this` | `[x]` `[?]` | `db.t4g.micro`, 20 GB gp3, single-AZ, default VPC subnets, `publicly_accessible = false` |
-| Database security group | `aws_security_group.db` + rules | `[x]` `[?]` | Port 5432 from `backend_security_group_id` or `allowed_cidr_blocks` only; both empty by default, so nothing can connect until one is set |
-| Master password | `random_password.db` | `[x]` `[?]` | 24 characters, generated when `db_password` is unset |
-| Database secret | `aws_secretsmanager_secret.db` (`secrets.tf`) | `[x]` `[?]` | JSON `{engine, host, port, dbname, username, password}`; the only place the generated password is stored outside Terraform state |
-| Backend IAM role | `aws_iam_role.backend`, `aws_iam_instance_profile.backend` (`iam.tf`) | `[x]` `[?]` | EC2 assume-role; may read the database secret and nothing else |
+| RDS for PostgreSQL 18 | `aws_db_instance.this` | `[x]` applied | `cmpe180b-team-project-db`: `db.t4g.micro`, 20 GB gp3, encrypted, single-AZ, default VPC subnets, `publicly_accessible = false` |
+| Database security group | `aws_security_group.db` + rules | `[x]` applied | Port 5432 from `backend_security_group_id` or `allowed_cidr_blocks` only; both empty by default, so nothing can connect until one is set |
+| Master password | `random_password.db` | `[x]` applied | 24 characters, generated when `db_password` is unset |
+| Database secret | `aws_secretsmanager_secret.db` (`secrets.tf`) | `[x]` applied | JSON `{engine, host, port, dbname, username, password}`; the only place the generated password is stored outside Terraform state |
+| Backend IAM role | `aws_iam_role.backend`, `aws_iam_instance_profile.backend` (`iam.tf`) | `[x]` applied | EC2 assume-role; may read the database secret and nothing else |
 | Outputs | `outputs.tf` | `[x]` | `db_address`, `db_port`, `db_name`, `db_endpoint`, `db_security_group_id`, `db_secret_arn`, `backend_iam_role_name`, `backend_instance_profile_name` |
 
 The API reads this secret at startup when `DB_SECRET_ARN` is set (see §2).
@@ -135,15 +136,15 @@ Maps to `BACKEND_PLAN.md` Phase 10 and `FRONTEND_PLAN.md` Phase F8.
 
 ### 4.1 Before deployment (in other plans)
 
-- [ ] Backend Phases 2–7 complete (`/readyz` is a database ping).
+- [x] Backend Phases 2–7 complete (`/readyz` is a database ping).
 - [ ] `frontend/Dockerfile`, built with the argument
       `API_PROXY_TARGET=http://api:8080`, and a `web` service in
       `docker-compose-rdbs.yml`.
 
 ### 4.2 Terraform additions (`infra/`)
 
-Written 2026-11-19 as Terragrunt units (`infra/README.md`); `terraform validate`,
-`terraform fmt`, and `terragrunt hcl validate` pass. Not planned or applied yet.
+Written 2026-11-19 as Terragrunt units (`infra/README.md`); applied 2026-11-20
+in us-east-2.
 
 - [x] `modules/app_security_group` (unit `app-sg`): port 80 from anywhere;
       port 22 only from `ssh_cidr_blocks` (empty by default; `0.0.0.0/0` rejected).
@@ -158,17 +159,19 @@ Written 2026-11-19 as Terragrunt units (`infra/README.md`); `terraform validate`
 - [x] Variables: `instance_type`, `root_volume_gb`, `key_name`, `create_eip`,
       `enable_ssm`, `ssh_cidr_blocks`.
 - [x] Outputs: `app_public_ip`, `app_url`, `instance_id`.
-- [ ] Move the existing state into `live/dev/data` (`infra/README.md`
-      "Moving the existing state"), then `terragrunt run --all -- plan` and `apply`.
+- [x] `terragrunt run --all -- plan` and `apply` (2026-11-20). No state had to
+      move: the earlier Terraform was never applied, and the console-created
+      `book-metaverse-database` is left as it is (`infra/README.md`).
 
 ### 4.3 Deploying (no new scripts)
 
-On the instance, over SSH:
+On the instance, over Session Manager
+(`aws ssm start-session --profile cmpe180b --target <instance_id>`):
 
 1. `git clone` the repository and `git checkout sunny` (or the merged branch).
 2. Create `.env` from `.env.example`: fill in the `RDS_*` values (host from
    `terragrunt output -raw db_address` in `infra/live/dev/data`; database, user, and password from the
-   Secrets Manager secret, §1.1), a random `JWT_SECRET`, and the Google key.
+   Secrets Manager secret, §1.1) and a random `JWT_SECRET` (Open Library needs no key).
    Run `chmod 600 .env`.
 3. `./scripts/dev.sh rds` (migrations, seeds, API), then
    `docker compose -f docker-compose-rdbs.yml up -d --build web`.

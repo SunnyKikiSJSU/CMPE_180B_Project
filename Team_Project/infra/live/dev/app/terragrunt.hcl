@@ -11,7 +11,7 @@ dependency "app_sg" {
   config_path = "../app-sg"
 
   mock_outputs                            = { security_group_id = "sg-00000000000000000" }
-  mock_outputs_allowed_terraform_commands = ["validate", "plan"]
+  mock_outputs_allowed_terraform_commands = ["init", "validate", "plan"]
 }
 
 dependency "data" {
@@ -21,7 +21,7 @@ dependency "data" {
     backend_instance_profile_name = "mock-backend-profile"
     backend_iam_role_name         = "mock-backend-role"
   }
-  mock_outputs_allowed_terraform_commands = ["validate", "plan"]
+  mock_outputs_allowed_terraform_commands = ["init", "validate", "plan"]
 }
 
 inputs = {
