@@ -8,6 +8,7 @@ export const queryKeys = {
     detail: (id: string) => ["books", id] as const,
     reviews: (id: string) => ["books", id, "reviews"] as const,
   },
+  externalAll: ["external"] as const,
   external: (filters: object) => ["external", "openlibrary", filters] as const,
   shelves: {
     all: ["shelves"] as const,

@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState, type FormEvent, type ReactNode } from "react";
 
 import { useLogout, useMe } from "@/hooks/use-auth";
+import { catalogHref } from "@/lib/catalog-params";
 
 const primaryNav = [["⌂", "Dashboard", "/dashboard"], ["▣", "Catalog", "/catalog"], ["▤", "My shelves", "/shelves"], ["◷", "Reading progress", "/progress"]];
 const insightNav = [["▥", "Reports", "/reports"], ["✦", "Authors & categories", "/authors"], ["▢", "Reviews", "/reviews"]];
@@ -25,7 +26,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const q = search.trim();
-    router.push(q ? `/catalog?q=${encodeURIComponent(q)}` : "/catalog");
+    router.push(catalogHref({ tab: "library", q }));
   }
 
   function signOut() {
