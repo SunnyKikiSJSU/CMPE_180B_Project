@@ -10,7 +10,7 @@ and updating its repository call.
 | --- | --- |
 | `auth.sql` | User lookup by email/ID, creation, password update |
 | `users.sql` | Profile read/update, account stats, account deletion |
-| `books.sql` | Library search, book detail, catalog writes, Google import and dedupe lookups, author/category upserts |
+| `books.sql` | Library search, book detail, catalog writes, Open Library import and dedupe lookups, author/category upserts |
 | `authors.sql` | Author list/detail and author-scoped books |
 | `categories.sql` | Category list/detail and category-scoped books |
 | `shelves.sql` | Shelf CRUD, shelf-book listing, membership add/remove |
@@ -39,22 +39,23 @@ API serves the exact SQL at `GET /api/reports/queries`; the mapping below is
 | `q09` | `ReviewActivity` | `GET /api/reports/review-activity` |
 | `q10` | `GetRatingDistribution` | `GET /api/books/{bookId}/ratings` |
 
-## Google Books queries
+## Open Library queries
 
-Google search itself runs in the Go `googlebooks` client, not in SQL. These
+Outside search runs in the Go `internal/openlibrary` client, not in SQL. These
 queries connect its results to the library:
 
 | Query | Endpoint | Role |
 | --- | --- | --- |
-| `ListBooksByExternalIDs` | `GET /api/external/books` | One lookup per result page; fills `bookId` for volumes (or ISBN-13s) already stored |
-| `GetBookByExternalID` | `POST /api/books/import` | Dedupe by volume ID, then ISBN-13, before calling Google |
-| `ImportGoogleBook` | `POST /api/books/import` | Inserts `source = 'google'`; `ON CONFLICT (google_books_id)` returns the existing row for concurrent imports |
+| `ListBooksByExternalIDs` | `GET /api/external/books` | One lookup per result page; fills `bookId` for works (by work ID, or any ISBN-13 of the work) already stored |
+| `FindImportedBook` | `POST /api/books/import` | Dedupe by work ID before calling Open Library, then by work ID or ISBN-13 after |
+| `ImportOpenLibraryBook` | `POST /api/books/import` | Inserts `source = 'openlibrary'`; `ON CONFLICT (openlibrary_id)` returns the existing row for concurrent imports, and `inserted` (`xmax = 0`) tells the two cases apart |
 
-`CreateBook` creates `source = 'user'` rows and never sets `google_books_id`.
-`UpdateBook` skips `source = 'google'` rows. `SearchBooks`, `GetBookByID`,
-`ListBooksByAuthor`, `ListBooksByCategory`, and `ListShelfBooks` return
-`source` and `published_date_precision` (and `google_books_id`, from which the
-service builds `infoLink` for Google rows).
+`CreateBook` creates `source = 'user'` rows and never sets an outside ID.
+`UpdateBook` skips imported rows (`source` `google` or `openlibrary`).
+`SearchBooks`, `GetBookByID`, `ListBooksByAuthor`, `ListBooksByCategory`, and
+`ListShelfBooks` return `source`, `published_date_precision`,
+`google_books_id`, and `openlibrary_id`; the service builds `infoLink` from
+the outside ID.
 
 ## Pagination totals
 

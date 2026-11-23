@@ -97,6 +97,7 @@ SELECT
     b.page_count,
     b.cover_url,
     b.google_books_id,
+    b.openlibrary_id,
     b.source,
     b.published_date_precision,
     a.name::text AS primary_author,
@@ -154,6 +155,7 @@ type ListBooksByAuthorRow struct {
 	PageCount              pgtype.Int4
 	CoverUrl               pgtype.Text
 	GoogleBooksID          pgtype.Text
+	OpenlibraryID          pgtype.Text
 	Source                 string
 	PublishedDatePrecision pgtype.Text
 	PrimaryAuthor          string
@@ -184,6 +186,7 @@ func (q *Queries) ListBooksByAuthor(ctx context.Context, arg ListBooksByAuthorPa
 			&i.PageCount,
 			&i.CoverUrl,
 			&i.GoogleBooksID,
+			&i.OpenlibraryID,
 			&i.Source,
 			&i.PublishedDatePrecision,
 			&i.PrimaryAuthor,

@@ -5,6 +5,22 @@ Companion to [`BACKEND_PLAN.md`](BACKEND_PLAN.md). The backend contract changed 
 `POST /api/books/import`). This document records what the existing Next.js app
 already has, what must change because of that design, and the order to do it in.
 
+> **Changed 2026-11-23: outside search is Open Library, not Google Books.**
+> The two endpoints are the same; read every "Google" below as Open Library,
+> with these contract differences (`docs/api/openapi.yaml`):
+>
+> | Google plan | Now |
+> | --- | --- |
+> | `googleBooksId` in results and import body | `externalId` (work ID, `OL893414W`); import body `{"externalId": ...}` |
+> | `source: "google"` | `source: "openlibrary"` |
+> | "Powered by Google" attribution | Link each result and imported book to `infoLink` (openlibrary.org) |
+> | Description in search results | `description` is null in search; the imported book has it |
+> | `publishedDate` 2004 / 2004-05 / 2004-05-12 | First publication year only (`"1965"`); imported books store it with precision `year` |
+> | Cover from books.google.com | `coverUrl` on covers.openlibrary.org (link, never copy) |
+>
+> Search takes 2-7 seconds; show a loading state, and keep library search as
+> the fallback when it returns `502 UPSTREAM_UNAVAILABLE`.
+
 - **Contract source:** [`docs/api/openapi.yaml`](docs/api/openapi.yaml) (v0.2.0)
 - **Backend intent source:** [`BACKEND_PLAN.md`](BACKEND_PLAN.md) §10, §13 Phase 8.
   For frontend file names and phases, this document is authoritative;

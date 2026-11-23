@@ -202,37 +202,58 @@ func (f *fakeReports) Catalog() []domain.QueryCatalogEntry {
 	return []domain.QueryCatalogEntry{{ID: "q05"}}
 }
 
+// fakeExternal records the last call and returns a fixed result.
+type fakeExternal struct {
+	search  services.ExternalSearchInput
+	source  string
+	id      string
+	created bool
+}
+
+func (f *fakeExternal) Search(_ context.Context, in services.ExternalSearchInput) ([]domain.ExternalBook, int64, error) {
+	f.search = in
+	return []domain.ExternalBook{{Source: "openlibrary", ExternalID: "OL1W", Title: "T", Authors: []string{}, Categories: []string{}}}, 77, nil
+}
+
+func (f *fakeExternal) Import(_ context.Context, source, id string) (domain.Book, bool, error) {
+	f.source, f.id = source, id
+	return domain.Book{Title: "T", Source: "openlibrary"}, f.created, nil
+}
+
 type fakePinger struct{ err error }
 
 func (f fakePinger) Ping(context.Context) error { return f.err }
 
 type harness struct {
-	handler http.Handler
-	tokens  *auth.Tokens
-	users   *fakeUsers
-	auth    *fakeAuth
-	catalog *fakeCatalog
-	reading *fakeReading
-	reviews *fakeReviews
-	reports *fakeReports
+	handler  http.Handler
+	tokens   *auth.Tokens
+	users    *fakeUsers
+	auth     *fakeAuth
+	catalog  *fakeCatalog
+	reading  *fakeReading
+	reviews  *fakeReviews
+	reports  *fakeReports
+	external *fakeExternal
 }
 
 func newHarness(dbErr error) harness {
 	tokens := auth.NewTokens([]byte("router-test-secret-0123456789abcdef"))
 	fa, fu, fc, fr, fv, fp := &fakeAuth{}, &fakeUsers{}, &fakeCatalog{}, &fakeReading{}, &fakeReviews{}, &fakeReports{}
+	fe := &fakeExternal{}
 	authHandler := handlers.Auth{Service: fa, Tokens: tokens}
 	return harness{
 		handler: New(Deps{
-			Health:  handlers.Health{DB: fakePinger{err: dbErr}},
-			Auth:    authHandler,
-			Users:   handlers.Users{Service: fu, Auth: authHandler},
-			Catalog: handlers.Catalog{Service: fc},
-			Reading: handlers.Reading{Service: fr},
-			Reviews: handlers.Reviews{Service: fv},
-			Reports: handlers.Reports{Service: fp, Now: func() time.Time { return reportClock }},
-			Authn:   middleware.Authenticator{Tokens: tokens},
+			Health:   handlers.Health{DB: fakePinger{err: dbErr}},
+			Auth:     authHandler,
+			Users:    handlers.Users{Service: fu, Auth: authHandler},
+			Catalog:  handlers.Catalog{Service: fc},
+			Reading:  handlers.Reading{Service: fr},
+			Reviews:  handlers.Reviews{Service: fv},
+			Reports:  handlers.Reports{Service: fp, Now: func() time.Time { return reportClock }},
+			External: handlers.External{Service: fe},
+			Authn:    middleware.Authenticator{Tokens: tokens},
 		}),
-		tokens: tokens, users: fu, auth: fa, catalog: fc, reading: fr, reviews: fv, reports: fp,
+		tokens: tokens, users: fu, auth: fa, catalog: fc, reading: fr, reviews: fv, reports: fp, external: fe,
 	}
 }
 
@@ -391,14 +412,8 @@ func TestUsersMe(t *testing.T) {
 	}
 }
 
-func TestSkeletonAndUnknownRoutes(t *testing.T) {
+func TestUnknownRoutes(t *testing.T) {
 	h := newHarness(nil)
-	if rec := h.do("GET", "/api/external/books", "", nil); rec.Code != 501 || errorCode(t, rec) != "NOT_IMPLEMENTED" {
-		t.Fatalf("public stub: %d", rec.Code)
-	}
-	if rec := h.do("POST", "/api/books/import", "{}", h.bearer()); rec.Code != 501 {
-		t.Fatalf("protected stub: %d", rec.Code)
-	}
 	for _, route := range [][2]string{{"GET", "/api/admin"}, {"GET", "/debug/pprof"}, {"DELETE", "/api/books"}} {
 		if rec := h.do(route[0], route[1], "", nil); rec.Code != 404 || errorCode(t, rec) != "NOT_FOUND" {
 			t.Errorf("%s %s: %d", route[0], route[1], rec.Code)
@@ -612,5 +627,33 @@ func TestReportRoutes(t *testing.T) {
 
 	if rec := h.do("GET", "/api/reports/queries", "", nil); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"id":"q05"`) {
 		t.Fatalf("queries: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestExternalRoutes(t *testing.T) {
+	h := newHarness(nil)
+	rec := h.do("GET", "/api/external/books?q=dune&author=herbert&category=Fantasy&isbn=0441013597&sort=newest&page=2&pageSize=5", "", nil)
+	want := services.ExternalSearchInput{Q: "dune", Author: "herbert", Category: "Fantasy", ISBN: "0441013597", Sort: "newest", Page: domain.Page{Number: 2, Size: 5}}
+	if rec.Code != 200 || h.external.search != want || rec.Header().Get("X-Total-Count") != "77" || !strings.Contains(rec.Body.String(), `"externalId":"OL1W"`) {
+		t.Fatalf("search: %d %+v %s", rec.Code, h.external.search, rec.Body.String())
+	}
+	if rec := h.do("GET", "/api/external/books?q=x&pageSize=101", "", nil); rec.Code != 400 {
+		t.Fatalf("pageSize: %d", rec.Code)
+	}
+
+	if rec := h.do("POST", "/api/books/import", `{"externalId":"OL1W"}`, nil); rec.Code != 401 {
+		t.Fatalf("anonymous import: %d", rec.Code)
+	}
+	if rec := h.do("POST", "/api/books/import", `{"source":"openlibrary","externalId":"OL1W"}`, h.bearer()); rec.Code != 200 ||
+		h.external.source != "openlibrary" || h.external.id != "OL1W" || rec.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("import existing: %d %q %q", rec.Code, h.external.source, h.external.id)
+	}
+	h.external.created = true
+	if rec := h.do("POST", "/api/books/import", `{"externalId":"OL1W"}`, h.bearer()); rec.Code != 201 {
+		t.Fatalf("import new: %d", rec.Code)
+	}
+	// Client metadata is never accepted.
+	if rec := h.do("POST", "/api/books/import", `{"externalId":"OL1W","title":"Mine"}`, h.bearer()); rec.Code != 400 {
+		t.Fatalf("unknown field: %d", rec.Code)
 	}
 }

@@ -130,6 +130,42 @@ func TestLibrarySearch(t *testing.T) {
 		t.Fatalf("category filter total %s, want %d", rec.Header().Get("X-Total-Count"), want)
 	}
 
+	// The title filter is a case-insensitive substring match on the title.
+	rec = call(h, "GET", "/api/books?title=aNCIENT&pageSize=100", "", "")
+	if want := count(t, pool, "SELECT count(*) FROM books WHERE title ILIKE '%ancient%'"); want == 0 || rec.Header().Get("X-Total-Count") != strconv.Itoa(want) {
+		t.Fatalf("title filter total %s, want %d", rec.Header().Get("X-Total-Count"), want)
+	}
+
+	// Keywords also match author and category names (EXISTS over the links):
+	// every book by that author and in that category is found.
+	for _, c := range []struct{ word, sql string }{
+		{"Bronte", "SELECT DISTINCT ba.book_id FROM book_authors ba JOIN authors a USING (author_id) WHERE a.name ILIKE '%bronte%'"},
+		{"Fantasy", "SELECT DISTINCT bc.book_id FROM book_categories bc JOIN categories c USING (category_id) WHERE c.name ILIKE '%fantasy%'"},
+	} {
+		rec := call(h, "GET", "/api/books?q="+c.word+"&pageSize=100", "", "")
+		got := map[uuid.UUID]bool{}
+		for _, b := range decode[[]apiBook](t, rec.Body.String()) {
+			got[b.ID] = true
+		}
+		rows, err := pool.Query(context.Background(), c.sql)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := 0
+		for rows.Next() {
+			var id uuid.UUID
+			_ = rows.Scan(&id)
+			want++
+			if !got[id] {
+				t.Fatalf("q=%s misses book %s", c.word, id)
+			}
+		}
+		rows.Close()
+		if want == 0 {
+			t.Fatalf("q=%s: no seed books to check", c.word)
+		}
+	}
+
 	// LIKE wildcards in user text match literally.
 	if rec := call(h, "GET", "/api/books?q=%25%25%25&pageSize=1", "", ""); rec.Code != 200 || rec.Header().Get("X-Total-Count") != "0" {
 		t.Fatalf("wildcard: %s", rec.Header().Get("X-Total-Count"))

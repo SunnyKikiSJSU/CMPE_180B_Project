@@ -34,7 +34,6 @@ var statusByKind = map[domain.Kind]int{
 	domain.KindStaleVersion:    http.StatusConflict,
 	domain.KindUpstream:        http.StatusBadGateway,
 	domain.KindDatabase:        http.StatusServiceUnavailable,
-	domain.KindNotImplemented:  http.StatusNotImplemented,
 	domain.KindInternal:        http.StatusInternalServerError,
 }
 
@@ -114,9 +113,4 @@ func fromPostgres(pgErr *pgconn.PgError) *domain.Error {
 		return &domain.Error{Kind: domain.KindDatabase, Message: "The database is unavailable. Try again shortly.", Err: pgErr}
 	}
 	return &domain.Error{Kind: domain.KindInternal, Message: "Something went wrong. Try again later.", Err: pgErr}
-}
-
-// NotImplemented answers contract routes that later phases will build.
-func NotImplemented(w http.ResponseWriter, r *http.Request) {
-	Error(w, r, &domain.Error{Kind: domain.KindNotImplemented, Message: "This endpoint is not implemented yet."})
 }

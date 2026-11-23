@@ -1,13 +1,13 @@
 -- Catalog search, detail, and catalog-write queries.
 --
 -- Two kinds of search exist:
---   * Google search (GET /api/external/books) calls the Google Books API from
---     the Go service and stores nothing. ListBooksByExternalIDs marks which
---     results are already in the local library.
+--   * Outside search (GET /api/external/books) calls the Open Library search
+--     API from the Go service and stores nothing. ListBooksByExternalIDs marks
+--     which results are already in the local library.
 --   * Library search (SearchBooks, GET /api/books) searches the local books
---     table: seed rows, imported Google rows, and user-created rows.
--- A Google result becomes a local row through ImportGoogleBook only when a
--- user acts on it, because every user-activity table references books.book_id.
+--     table: seed, imported, and user-created rows.
+-- An Open Library work becomes a local row through ImportOpenLibraryBook when a
+-- user imports it, because every user-activity table references books.book_id.
 --
 -- Library search uses both full-text ranking (title/description) and
 -- trigram-style ILIKE membership through authors and categories. EXISTS keeps
@@ -69,6 +69,7 @@ matched AS (
 SELECT
     b.book_id,
     b.google_books_id,
+    b.openlibrary_id,
     b.isbn13,
     b.title,
     b.description,
@@ -154,6 +155,7 @@ OFFSET sqlc.arg('offset')::int;
 SELECT
     b.book_id,
     b.google_books_id,
+    b.openlibrary_id,
     b.isbn13,
     b.title,
     b.description,
@@ -205,40 +207,34 @@ FROM books b
 LEFT JOIN book_rating_summaries s ON s.book_id = b.book_id
 WHERE b.book_id = sqlc.arg('book_id');
 
--- Import dedupe: finds an existing local row for a Google volume, first by
--- volume ID, then by ISBN-13 (several Google volume IDs can be one book).
--- name: GetBookByExternalID :one
-WITH params AS (
-    SELECT
-        sqlc.narg('google_books_id')::text AS google_books_id,
-        sqlc.narg('isbn13')::text AS isbn13
-)
+-- Import dedupe (POST /api/books/import): the local row for an Open Library
+-- work, found by work ID first, then by any ISBN-13 of the work's editions
+-- (a seed or user-created book with the same ISBN is the same book).
+-- name: FindImportedBook :one
 SELECT
     b.book_id,
-    b.google_books_id,
-    b.isbn13,
-    b.title,
-    b.source
+    b.openlibrary_id,
+    b.isbn13
 FROM books b
-CROSS JOIN params p
-WHERE (p.google_books_id IS NOT NULL AND b.google_books_id = p.google_books_id)
-   OR (p.isbn13 IS NOT NULL AND b.isbn13 = p.isbn13)
-ORDER BY (b.google_books_id IS NOT DISTINCT FROM p.google_books_id) DESC
+WHERE b.openlibrary_id = sqlc.arg('openlibrary_id')::text
+   OR b.isbn13 = ANY (sqlc.arg('isbn13s')::text[])
+ORDER BY (b.openlibrary_id IS NOT DISTINCT FROM sqlc.arg('openlibrary_id')::text) DESC, b.book_id
 LIMIT 1;
 
--- Marks Google search results that already exist locally, so the response can
--- carry the local bookId. One call per search page (at most 40 IDs).
+-- Marks outside search results that already exist locally, so each result can
+-- carry its local bookId. One call per search page; the same rule as
+-- FindImportedBook (work ID, then ISBN-13).
 -- name: ListBooksByExternalIDs :many
 SELECT
     b.book_id,
-    b.google_books_id,
+    b.openlibrary_id,
     b.isbn13
 FROM books b
-WHERE b.google_books_id = ANY (sqlc.arg('google_books_ids')::text[])
+WHERE b.openlibrary_id = ANY (sqlc.arg('openlibrary_ids')::text[])
    OR b.isbn13 = ANY (sqlc.arg('isbn13s')::text[]);
 
--- User-created catalog record (POST /api/books). Google rows are created only
--- by ImportGoogleBook, so this query never sets google_books_id.
+-- User-created catalog record (POST /api/books). It never sets an outside ID;
+-- imported rows come only from ImportOpenLibraryBook.
 -- name: CreateBook :one
 INSERT INTO books (
     isbn13,
@@ -275,9 +271,9 @@ RETURNING
     source,
     published_date_precision;
 
--- Google-imported rows are read-only here: their content belongs to Google and
--- is shown with Google attribution. The service returns 403 for them; the
--- source filter is the database-side guard.
+-- Imported rows (Google, Open Library) are read-only here: they mirror an
+-- outside catalog and are shown with its attribution. The service returns 403
+-- for them; the source filter is the database-side guard.
 -- name: UpdateBook :one
 UPDATE books
 SET
@@ -293,7 +289,7 @@ SET
     cover_url = coalesce(sqlc.narg('cover_url'), cover_url),
     isbn13 = coalesce(sqlc.narg('isbn13'), isbn13)
 WHERE book_id = sqlc.arg('book_id')
-  AND source <> 'google'
+  AND source NOT IN ('google', 'openlibrary')
 RETURNING
     book_id,
     google_books_id,
@@ -307,15 +303,15 @@ RETURNING
     source,
     published_date_precision;
 
--- Creates the local row for a Google volume (POST /api/books/import). The
--- service fetches the volume from Google by ID and normalizes it first; client
--- metadata is never trusted. Concurrent imports of the same volume return the
--- same row: the no-op DO UPDATE makes RETURNING yield the existing row. An
+-- Creates the local row for an Open Library work (POST /api/books/import).
+-- The service fetches the work from Open Library by ID and normalizes it;
+-- client metadata is never trusted. Concurrent imports of the same work return
+-- the same row: the no-op DO UPDATE makes RETURNING yield the existing row. An
 -- ISBN-13 collision with a different row raises 23505 on books_isbn13_unique;
--- the service then reruns GetBookByExternalID and returns that row.
--- name: ImportGoogleBook :one
+-- the service then reruns FindImportedBook and returns that row.
+-- name: ImportOpenLibraryBook :one
 INSERT INTO books (
-    google_books_id,
+    openlibrary_id,
     isbn13,
     title,
     description,
@@ -328,7 +324,7 @@ INSERT INTO books (
     imported_at
 )
 VALUES (
-    sqlc.arg('google_books_id')::text,
+    sqlc.arg('openlibrary_id')::text,
     sqlc.narg('isbn13'),
     sqlc.arg('title'),
     sqlc.narg('description'),
@@ -337,24 +333,14 @@ VALUES (
     sqlc.narg('publisher'),
     sqlc.narg('page_count'),
     sqlc.narg('cover_url'),
-    'google',
+    'openlibrary',
     now()
 )
-ON CONFLICT (google_books_id) DO UPDATE
-    SET google_books_id = books.google_books_id
+ON CONFLICT (openlibrary_id) DO UPDATE
+    SET openlibrary_id = books.openlibrary_id
 RETURNING
     book_id,
-    google_books_id,
-    isbn13,
-    title,
-    description,
-    published_date,
-    publisher,
-    page_count,
-    cover_url,
-    source,
-    published_date_precision,
-    imported_at;
+    (xmax = 0) AS inserted;
 
 -- name: UpsertAuthor :one
 INSERT INTO authors (name)

@@ -154,7 +154,7 @@ func (s *Catalog) Create(ctx context.Context, in BookFields) (domain.Book, error
 	return s.store.Get(ctx, id)
 }
 
-// Update corrects seed or user-created metadata. Google rows are read-only.
+// Update corrects seed or user-created metadata. Imported rows are read-only.
 func (s *Catalog) Update(ctx context.Context, id uuid.UUID, in BookFields) (domain.Book, error) {
 	fields, err := validateBook(in)
 	if err != nil {
@@ -167,8 +167,8 @@ func (s *Catalog) Update(ctx context.Context, id uuid.UUID, in BookFields) (doma
 	if err != nil {
 		return domain.Book{}, err
 	}
-	if current.Source == "google" {
-		return domain.Book{}, &domain.Error{Kind: domain.KindForbidden, Message: "Books imported from Google Books cannot be edited."}
+	if current.Source == "google" || current.Source == "openlibrary" {
+		return domain.Book{}, &domain.Error{Kind: domain.KindForbidden, Message: "Imported books mirror an outside catalog and cannot be edited."}
 	}
 	err = s.store.InTx(ctx, func(tx *repository.Catalog) error { return tx.Update(ctx, id, fields) })
 	if errors.Is(err, repository.ErrNoRows) {

@@ -42,10 +42,10 @@ and review in one transaction), `PATCH|DELETE /api/reviews/{reviewId}`,
 `authors`, `categories`, `review-activity`, `queries`). Each report response
 has an `X-Query-Id` header (q01-q10, see `docs/database/query-catalog.md`);
 `popular` and `review-activity` take `days` and an optional `endDate` (use
-`2026-10-31` for the seed data). The Google Books routes
-`GET /api/external/books` and `POST /api/books/import` are registered with their
-auth requirement and return `501 NOT_IMPLEMENTED` until that design is
-approved. Unknown routes return `404 NOT_FOUND`.
+`2026-10-31` for the seed data), plus outside search and import through Open
+Library: `GET /api/external/books` and `POST /api/books/import` (body
+`{"externalId":"OL893414W"}`; `201` when added, `200` when the library already
+has the work or one of its ISBN-13s). Unknown routes return `404 NOT_FOUND`.
 
 Sessions: the `bm_session` cookie (`HttpOnly; SameSite=Lax; Path=/`, plus
 `Secure` when `COOKIE_SECURE=true`) or `Authorization: ******` for curl
@@ -69,7 +69,7 @@ Catalog notes:
   caller (with `Cache-Control: no-store`).
 - `POST /api/books` creates `source = user` books; author and category names
   are trimmed and de-duplicated case-insensitively (at most 20 each).
-  A duplicate ISBN-13 is `409`. `PATCH` on a `source = google` book is `403`.
+  A duplicate ISBN-13 is `409`. `PATCH` on an imported book (`openlibrary`) is `403`.
 
 Shelves and progress notes:
 
@@ -92,7 +92,7 @@ Shelves and progress notes:
 | `DATABASE_URL` | Complete connection string; wins over everything below |
 | `DB_SECRET_ARN` | Secrets Manager secret from `infra/` (`terraform output -raw db_secret_arn`). Read once at startup with the default AWS credential chain (on EC2, the instance profile); `DB_SSLMODE` defaults to `require`. Region from `AWS_REGION` or the ARN |
 | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_SSLMODE` | Used when neither of the above is set; `DB_PASSWORD` is required |
-| `PORT`, `APP_ENV`, `COOKIE_SECURE`, `GOOGLE_BOOKS_API_KEY`, `GOOGLE_BOOKS_COUNTRY` | See `.env.example` |
+| `PORT`, `APP_ENV`, `COOKIE_SECURE`, `OPENLIBRARY_USER_AGENT`, `OPENLIBRARY_URL` | See `.env.example` |
 
 The startup log records which database source was used, never the values.
 

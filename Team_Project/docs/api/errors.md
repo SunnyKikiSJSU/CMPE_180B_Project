@@ -40,37 +40,36 @@ and is also sent in the `X-Request-ID` response header.
 | `NOT_FOUND` | 404 | Resource missing or owned by another user |
 | `CONFLICT` | 409 | Duplicate resource, duplicate review/rating, duplicate shelf name |
 | `STALE_VERSION` | 409 | `reading_progress.version` does not match the current row |
-| `UPSTREAM_UNAVAILABLE` | 502 | Google Books failed, timed out, is over its quota, or returned an unusable response |
+| `UPSTREAM_UNAVAILABLE` | 502 | Open Library failed, timed out, is rate limiting, or returned an unusable response |
 | `DATABASE_UNAVAILABLE` | 503 | The pool cannot reach PostgreSQL |
 | `INTERNAL` | 500 | Unexpected failure; details are logged, not returned |
-| `NOT_IMPLEMENTED` | 501 | Development only: the route is in the contract but its phase is not built yet. Removed once every endpoint exists |
 
-## Google Books mapping
+## Open Library mapping
 
-Only `GET /api/external/books` and `POST /api/books/import` call Google. Every
-other endpoint reads PostgreSQL only, so a Google outage never breaks library
-search, shelves, progress, reviews, or reports.
+Only `GET /api/external/books` and `POST /api/books/import` call Open Library.
+Every other endpoint reads PostgreSQL only, so an Open Library outage never
+breaks library search, shelves, progress, reviews, or reports. Calls have a
+9-second timeout (inside the API's 10-second request limit).
 
-| Google response | API response |
+| Open Library response | API response |
 | --- | --- |
 | `200` | Normalized result; `200` for search, `201` or `200` for import |
-| `404` for a volume ID | `404 NOT_FOUND` with `details.googleBooksId` |
-| `400` (bad query) | `400 VALIDATION_ERROR` |
-| `403` with reason `unknownLocation` | `502 UPSTREAM_UNAVAILABLE`; set `GOOGLE_BOOKS_COUNTRY` |
-| `403` or `429` with a quota/rate reason | `502 UPSTREAM_UNAVAILABLE`; the message says Google is over its quota |
-| `5xx`, timeout, or malformed JSON | `502 UPSTREAM_UNAVAILABLE` |
-| Volume has no title | `400 VALIDATION_ERROR` with `details.reason = "volume has no title"` |
+| `404`, a deleted work, or a work with no title | `404 NOT_FOUND` ("Book not found in Open Library.") |
+| A merged work (`/type/redirect`) | Followed once; the import uses the new work ID |
+| `429`, any other non-`200`, timeout, or malformed JSON | `502 UPSTREAM_UNAVAILABLE` |
 
-Google's status and body are logged with the request ID. They are never
-returned to the client, and the API key never appears in logs.
+Invalid parameters never reach Open Library: they are `400 VALIDATION_ERROR`
+(for example an `externalId` that is not a work ID such as `OL893414W`).
+Open Library's status is logged with the request ID; it is never returned to
+the client.
 
-Import race: two users importing the same volume at once both get the same
-book. A different volume with an ISBN-13 that is already in the library raises
-`23505` on `books_isbn13_unique`; the service returns the existing book with
-`200` instead of `409`.
+Import race: two users importing the same work at once both get the same
+book (one `201`, one `200`). A work with an ISBN-13 that is already in the
+library returns the existing book with `200`, including when the other row
+appears between the check and the insert (`23505` on `books_isbn13_unique`).
 
-`PATCH /api/books/{bookId}` on a book with `source = "google"` returns
-`403 FORBIDDEN`.
+`PATCH /api/books/{bookId}` on an imported book (`source` `openlibrary` or
+`google`) returns `403 FORBIDDEN`.
 
 ## PostgreSQL mapping
 

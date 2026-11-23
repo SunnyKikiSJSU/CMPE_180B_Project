@@ -30,9 +30,9 @@ here, they win.
 | --- | --- | --- |
 | Frontend | Next.js 15, React 19, TypeScript, Tailwind CSS 4 UI across 11 routes; `npm run lint` and `npx tsc --noEmit` pass | Pages use mock or empty-state data; the 8 declared service calls are not used; see `FRONTEND_PLAN.md` |
 | Authentication | API: register, login, logout, and sessions (JWT in the `bm_session` cookie or a Bearer header) | The frontend login still writes a demo value to `localStorage` (Phase 8) |
-| Backend | Go API on `pgxpool` with chi router, middleware, auth, catalog, shelves/progress/history, reviews/ratings, and reports (`BACKEND_PLAN.md` Phases 2-7); unit, router, and integration tests | Google Books search and import (`501` until `conflict.md` #5 is answered); deployment (Phase 10) |
-| Database | Migrations `000001`-`000007` with constraints, triggers, functions, search and reporting indexes, Google Books source columns, and a locked rating-summary refresh; 69 named queries; seeds `001`-`004` (201 books, 51 users); verified on a clean PostgreSQL 18 database | Transaction and concurrency evidence for Phases 5-6 (`docs/evidence/`); no validation or performance evidence yet |
-| API contract | `docs/api/openapi.yaml` 0.2.0, `errors.md`, `examples.md` | Implemented except the two Google Books operations |
+| Backend | Go API on `pgxpool` with chi router, middleware, auth, catalog, shelves/progress/history, reviews/ratings, and reports (`BACKEND_PLAN.md` Phases 2-7); unit, router, and integration tests | Deployment (Phase 10) |
+| Database | Migrations `000001`-`000008` with constraints, triggers, functions, search and reporting indexes, book source columns (Google, Open Library), and a locked rating-summary refresh; 69 named queries; seeds `001`-`004` (201 books, 51 users); verified on a clean PostgreSQL 18 database | Transaction and concurrency evidence for Phases 5-6 (`docs/evidence/`); no validation or performance evidence yet |
+| API contract | `docs/api/openapi.yaml` 0.2.0, `errors.md`, `examples.md` | Fully implemented |
 | Docker | `postgres`, `api`, and `tools` services (`migrate`, `seed`, `sqlc`) locally; RDS variant | No `web` service because `frontend/Dockerfile` does not exist |
 | Infrastructure | Terraform provisions RDS (PostgreSQL 18), a private security group, a Secrets Manager secret for the database credentials, and an EC2 IAM role/profile | No EC2 instance yet ([`AWS_PLAN.md`](AWS_PLAN.md)), custom network, or S3 resources |
 | Documentation | `README.md`, `DEVELOPMENT.md`, `BACKEND_PLAN.md`, `FRONTEND_PLAN.md`, `docs/`, database READMEs, query catalog (`docs/database/query-catalog.md`), transaction and concurrency evidence (`docs/evidence/`) | No schema dictionary, runbooks, or validation/performance evidence yet |
@@ -69,7 +69,7 @@ Team_Project/
 |   `-- internal/db/            # sqlc-generated code (13 files), README.md
 |
 |-- database/
-|   |-- migrations/             # 000001-000007 up/down, README.md
+|   |-- migrations/             # 000001-000008 up/down, README.md
 |   |-- schema/schema.sql       # reduced mirror read by sqlc, README.md
 |   |-- queries/                # 10 .sql files, 66 named queries, README.md
 |   `-- seeds/                  # 001-004, README.md
@@ -243,9 +243,9 @@ The Go API should expose:
   `/api/shelves`, `/api/reading-progress`, `/api/reading-history`,
   `/api/reviews`, and `/api/reports` (ratings live under
   `/api/books/{id}/ratings`).
-- `/api/external/books` (Google Books search through the server) and
-  `/api/books/import` (adds one Google volume to the library when a user acts
-  on it). `BACKEND_PLAN.md` is the detailed contract.
+- `/api/external/books` (Open Library search through the server) and
+  `/api/books/import` (adds one Open Library work to the library when a user
+  acts on it). `BACKEND_PLAN.md` is the detailed contract.
 
 Integration tests should use a disposable database and deterministic fixtures.
 They should cover constraint errors, rollback behavior, duplicate review and

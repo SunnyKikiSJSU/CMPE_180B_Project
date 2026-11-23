@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/url"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 )
@@ -43,9 +42,15 @@ type Config struct {
 	JWTSecret    []byte
 	CookieSecure bool
 
-	GoogleBooksAPIKey  string
-	GoogleBooksCountry string
+	// OpenLibraryURL is the Open Library base URL (tests point it at a fake).
+	OpenLibraryURL string
+	// OpenLibraryUserAgent identifies the app to Open Library, which asks
+	// frequent API users to name the app and a contact.
+	OpenLibraryUserAgent string
 }
+
+// DefaultOpenLibraryUserAgent is sent when OPENLIBRARY_USER_AGENT is unset.
+const DefaultOpenLibraryUserAgent = "BookMetaversePortal/1.0 (SJSU CMPE 180B course project)"
 
 // placeholderSecrets are example values from .env.example and the Compose
 // defaults. Signing sessions with a published value would let anyone forge
@@ -56,8 +61,7 @@ var placeholderSecrets = map[string]bool{
 }
 
 var (
-	countryPattern = regexp.MustCompile(`^[A-Z]{2}$`)
-	sslModes       = map[string]bool{"disable": true, "allow": true, "prefer": true, "require": true, "verify-ca": true, "verify-full": true}
+	sslModes = map[string]bool{"disable": true, "allow": true, "prefer": true, "require": true, "verify-ca": true, "verify-full": true}
 )
 
 // Load reads the environment (lookup is os.LookupEnv in production).
@@ -71,9 +75,12 @@ func Load(lookup func(string) (string, bool)) (*Config, error) {
 	var problems []string
 
 	cfg := &Config{
-		AppEnv:             get("APP_ENV", "local"),
-		GoogleBooksAPIKey:  get("GOOGLE_BOOKS_API_KEY", ""),
-		GoogleBooksCountry: strings.ToUpper(get("GOOGLE_BOOKS_COUNTRY", "US")),
+		AppEnv:               get("APP_ENV", "local"),
+		OpenLibraryURL:       strings.TrimRight(get("OPENLIBRARY_URL", "https://openlibrary.org"), "/"),
+		OpenLibraryUserAgent: get("OPENLIBRARY_USER_AGENT", DefaultOpenLibraryUserAgent),
+	}
+	if u, err := url.Parse(cfg.OpenLibraryURL); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		problems = append(problems, "OPENLIBRARY_URL must be an http(s) URL such as https://openlibrary.org")
 	}
 
 	port, err := strconv.Atoi(get("PORT", "8080"))
@@ -87,10 +94,6 @@ func Load(lookup func(string) (string, bool)) (*Config, error) {
 		problems = append(problems, "COOKIE_SECURE must be true or false")
 	}
 	cfg.CookieSecure = cookieSecure
-
-	if !countryPattern.MatchString(cfg.GoogleBooksCountry) {
-		problems = append(problems, "GOOGLE_BOOKS_COUNTRY must be a two-letter country code such as US")
-	}
 
 	secret, _ := lookup("JWT_SECRET")
 	switch {
@@ -172,12 +175,9 @@ func (c *Config) LogSummary() {
 		"database_source", string(c.DatabaseSource),
 		"db_sslmode", c.DBSSLMode,
 		"cookie_secure", c.CookieSecure,
-		"google_books_country", c.GoogleBooksCountry,
-		"google_books_key_set", c.GoogleBooksAPIKey != "",
+		"openlibrary_url", c.OpenLibraryURL,
+		"openlibrary_user_agent_set", c.OpenLibraryUserAgent != DefaultOpenLibraryUserAgent,
 	)
-	if c.GoogleBooksAPIKey == "" {
-		slog.Warn("GOOGLE_BOOKS_API_KEY is empty; Google Books will use its small anonymous quota")
-	}
 	if len(c.JWTSecret) < 32 {
 		slog.Warn("JWT_SECRET is shorter than 32 bytes; use a long random value outside local development")
 	}

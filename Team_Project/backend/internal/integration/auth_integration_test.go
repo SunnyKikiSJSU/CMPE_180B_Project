@@ -25,12 +25,20 @@ import (
 	"book-metaverse/backend/internal/database"
 	"book-metaverse/backend/internal/handlers"
 	"book-metaverse/backend/internal/middleware"
+	"book-metaverse/backend/internal/openlibrary"
 	"book-metaverse/backend/internal/repository"
 	"book-metaverse/backend/internal/router"
 	"book-metaverse/backend/internal/services"
 )
 
 func setup(t *testing.T) (http.Handler, *pgxpool.Pool) {
+	t.Helper()
+	// No outside calls by default: an unreachable Open Library answers 502.
+	return setupWith(t, "http://127.0.0.1:9")
+}
+
+// setupWith builds the API with Open Library at openLibraryURL (a fake).
+func setupWith(t *testing.T, openLibraryURL string) (http.Handler, *pgxpool.Pool) {
 	t.Helper()
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
@@ -45,14 +53,15 @@ func setup(t *testing.T) (http.Handler, *pgxpool.Pool) {
 	users := repository.NewUsers(pool)
 	authHandler := handlers.Auth{Service: services.NewAuth(users), Tokens: tokens}
 	return router.New(router.Deps{
-		Health:  handlers.Health{DB: pool},
-		Auth:    authHandler,
-		Users:   handlers.Users{Service: services.NewUsers(users), Auth: authHandler},
-		Catalog: handlers.Catalog{Service: services.NewCatalog(repository.NewCatalog(pool))},
-		Reading: handlers.Reading{Service: services.NewReading(repository.NewReading(pool))},
-		Reviews: handlers.Reviews{Service: services.NewReviews(repository.NewReviews(pool))},
-		Reports: handlers.Reports{Service: services.NewReports(repository.NewReports(pool))},
-		Authn:   middleware.Authenticator{Tokens: tokens},
+		Health:   handlers.Health{DB: pool},
+		Auth:     authHandler,
+		Users:    handlers.Users{Service: services.NewUsers(users), Auth: authHandler},
+		Catalog:  handlers.Catalog{Service: services.NewCatalog(repository.NewCatalog(pool))},
+		Reading:  handlers.Reading{Service: services.NewReading(repository.NewReading(pool))},
+		Reviews:  handlers.Reviews{Service: services.NewReviews(repository.NewReviews(pool))},
+		Reports:  handlers.Reports{Service: services.NewReports(repository.NewReports(pool))},
+		External: handlers.External{Service: services.NewExternal(openlibrary.New(openLibraryURL, "BookMetaversePortal-tests"), repository.NewCatalog(pool))},
+		Authn:    middleware.Authenticator{Tokens: tokens},
 	}), pool
 }
 

@@ -24,7 +24,7 @@ workspace layout. It is not connected to the API yet. Pages show static or empty
 data, login writes a demo value to `localStorage`, and the home carousel uses
 `src/data/mock-data.ts`.
 
-Integration work (API client, cookie session, Google Books search and import,
+Integration work (API client, cookie session, Open Library search and import,
 book detail, shelves, progress, reviews, reports) is planned in
 [`../FRONTEND_PLAN.md`](../FRONTEND_PLAN.md).
 

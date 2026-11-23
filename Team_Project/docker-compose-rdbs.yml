@@ -19,8 +19,8 @@ services:
       # Required: the API refuses example values outside APP_ENV=local.
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (openssl rand -hex 32)}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
-      GOOGLE_BOOKS_API_KEY: ${GOOGLE_BOOKS_API_KEY:-}
-      GOOGLE_BOOKS_COUNTRY: ${GOOGLE_BOOKS_COUNTRY:-US}
+      OPENLIBRARY_USER_AGENT: ${OPENLIBRARY_USER_AGENT:-}
+      OPENLIBRARY_URL: ${OPENLIBRARY_URL:-https://openlibrary.org}
     ports:
       - "${API_PORT:-8080}:8080"
     healthcheck:

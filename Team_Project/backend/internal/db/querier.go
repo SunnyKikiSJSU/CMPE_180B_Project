@@ -21,8 +21,8 @@ type Querier interface {
 	ClearBookAuthors(ctx context.Context, bookID uuid.UUID) error
 	ClearBookCategories(ctx context.Context, bookID uuid.UUID) error
 	CountCustomShelves(ctx context.Context, userID uuid.UUID) (int32, error)
-	// User-created catalog record (POST /api/books). Google rows are created only
-	// by ImportGoogleBook, so this query never sets google_books_id.
+	// User-created catalog record (POST /api/books). It never sets an outside ID;
+	// imported rows come only from ImportOpenLibraryBook.
 	CreateBook(ctx context.Context, arg CreateBookParams) (CreateBookRow, error)
 	CreateReview(ctx context.Context, arg CreateReviewParams) (CreateReviewRow, error)
 	CreateShelf(ctx context.Context, arg CreateShelfParams) (CreateShelfRow, error)
@@ -39,10 +39,11 @@ type Querier interface {
 	// a foreign-key cascade (migration 000005), so no session setting is needed.
 	DeleteUser(ctx context.Context, userID uuid.UUID) error
 	FavoriteCategories(ctx context.Context, arg FavoriteCategoriesParams) ([]FavoriteCategoriesRow, error)
+	// Import dedupe (POST /api/books/import): the local row for an Open Library
+	// work, found by work ID first, then by any ISBN-13 of the work's editions
+	// (a seed or user-created book with the same ISBN is the same book).
+	FindImportedBook(ctx context.Context, arg FindImportedBookParams) (FindImportedBookRow, error)
 	GetAuthorByID(ctx context.Context, authorID uuid.UUID) (Author, error)
-	// Import dedupe: finds an existing local row for a Google volume, first by
-	// volume ID, then by ISBN-13 (several Google volume IDs can be one book).
-	GetBookByExternalID(ctx context.Context, arg GetBookByExternalIDParams) (GetBookByExternalIDRow, error)
 	GetBookByID(ctx context.Context, bookID uuid.UUID) (GetBookByIDRow, error)
 	// Rating summary, distribution, and owner-scoped writes.
 	// book_rating_summaries is maintained by PostgreSQL triggers; this file only
@@ -64,13 +65,13 @@ type Querier interface {
 	// User profile and account queries. All writes are scoped by user_id, so a
 	// caller cannot affect another account even if a handler forgets a check.
 	GetUserWithProfile(ctx context.Context, userID uuid.UUID) (GetUserWithProfileRow, error)
-	// Creates the local row for a Google volume (POST /api/books/import). The
-	// service fetches the volume from Google by ID and normalizes it first; client
-	// metadata is never trusted. Concurrent imports of the same volume return the
-	// same row: the no-op DO UPDATE makes RETURNING yield the existing row. An
+	// Creates the local row for an Open Library work (POST /api/books/import).
+	// The service fetches the work from Open Library by ID and normalizes it;
+	// client metadata is never trusted. Concurrent imports of the same work return
+	// the same row: the no-op DO UPDATE makes RETURNING yield the existing row. An
 	// ISBN-13 collision with a different row raises 23505 on books_isbn13_unique;
-	// the service then reruns GetBookByExternalID and returns that row.
-	ImportGoogleBook(ctx context.Context, arg ImportGoogleBookParams) (ImportGoogleBookRow, error)
+	// the service then reruns FindImportedBook and returns that row.
+	ImportOpenLibraryBook(ctx context.Context, arg ImportOpenLibraryBookParams) (ImportOpenLibraryBookRow, error)
 	// Membership check for moves and removals, scoped to the shelf's owner.
 	IsBookOnShelf(ctx context.Context, arg IsBookOnShelfParams) (bool, error)
 	// Author listing, detail, and author-scoped book listing.
@@ -81,8 +82,9 @@ type Querier interface {
 	ListBookReviews(ctx context.Context, arg ListBookReviewsParams) ([]ListBookReviewsRow, error)
 	ListBooksByAuthor(ctx context.Context, arg ListBooksByAuthorParams) ([]ListBooksByAuthorRow, error)
 	ListBooksByCategory(ctx context.Context, arg ListBooksByCategoryParams) ([]ListBooksByCategoryRow, error)
-	// Marks Google search results that already exist locally, so the response can
-	// carry the local bookId. One call per search page (at most 40 IDs).
+	// Marks outside search results that already exist locally, so each result can
+	// carry its local bookId. One call per search page; the same rule as
+	// FindImportedBook (work ID, then ISBN-13).
 	ListBooksByExternalIDs(ctx context.Context, arg ListBooksByExternalIDsParams) ([]ListBooksByExternalIDsRow, error)
 	// Category listing, detail, and category-scoped book listing.
 	// LIKE wildcards in user text are escaped so they match literally.
@@ -135,13 +137,13 @@ type Querier interface {
 	// Catalog search, detail, and catalog-write queries.
 	//
 	// Two kinds of search exist:
-	//   * Google search (GET /api/external/books) calls the Google Books API from
-	//     the Go service and stores nothing. ListBooksByExternalIDs marks which
-	//     results are already in the local library.
+	//   * Outside search (GET /api/external/books) calls the Open Library search
+	//     API from the Go service and stores nothing. ListBooksByExternalIDs marks
+	//     which results are already in the local library.
 	//   * Library search (SearchBooks, GET /api/books) searches the local books
-	//     table: seed rows, imported Google rows, and user-created rows.
-	// A Google result becomes a local row through ImportGoogleBook only when a
-	// user acts on it, because every user-activity table references books.book_id.
+	//     table: seed, imported, and user-created rows.
+	// An Open Library work becomes a local row through ImportOpenLibraryBook when a
+	// user imports it, because every user-activity table references books.book_id.
 	//
 	// Library search uses both full-text ranking (title/description) and
 	// trigram-style ILIKE membership through authors and categories. EXISTS keeps
@@ -155,9 +157,9 @@ type Querier interface {
 	// otherwise). Runs in the same transaction as fn_update_reading_progress.
 	SetProgressPercent(ctx context.Context, arg SetProgressPercentParams) (int64, error)
 	TopRatedBooks(ctx context.Context, arg TopRatedBooksParams) ([]TopRatedBooksRow, error)
-	// Google-imported rows are read-only here: their content belongs to Google and
-	// is shown with Google attribution. The service returns 403 for them; the
-	// source filter is the database-side guard.
+	// Imported rows (Google, Open Library) are read-only here: they mirror an
+	// outside catalog and are shown with its attribution. The service returns 403
+	// for them; the source filter is the database-side guard.
 	UpdateBook(ctx context.Context, arg UpdateBookParams) (UpdateBookRow, error)
 	// set_title = false keeps the current title; true writes title (NULL clears it).
 	UpdateReview(ctx context.Context, arg UpdateReviewParams) (UpdateReviewRow, error)
