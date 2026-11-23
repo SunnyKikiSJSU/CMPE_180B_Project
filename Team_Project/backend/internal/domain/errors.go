@@ -19,7 +19,6 @@ const (
 	KindStaleVersion    Kind = "STALE_VERSION"
 	KindUpstream        Kind = "UPSTREAM_UNAVAILABLE"
 	KindDatabase        Kind = "DATABASE_UNAVAILABLE"
-	KindNotImplemented  Kind = "NOT_IMPLEMENTED"
 	KindInternal        Kind = "INTERNAL"
 )
 

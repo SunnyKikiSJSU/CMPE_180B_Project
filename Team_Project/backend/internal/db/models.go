@@ -28,6 +28,7 @@ type Book struct {
 	Source                 string
 	PublishedDatePrecision pgtype.Text
 	ImportedAt             pgtype.Timestamptz
+	OpenlibraryID          pgtype.Text
 }
 
 type BookAuthor struct {

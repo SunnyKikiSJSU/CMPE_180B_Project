@@ -41,9 +41,30 @@ drift from `database/queries/`). Every report response carries an
 
 ## Expected output on the seed data
 
-Migrations `000001`-`000007` and seeds `001`-`004`. Personal reports are for
+Migrations `000001`-`000008` and seeds `001`-`004`. Personal reports are for
 `reader1@example.com`; windows end on `2026-10-31`. These values are checked
 independently in `backend/internal/integration/reports_integration_test.go`.
+
+**q01** library search checks (`GET /api/books`, `pageSize=3`). Each total is
+compared with an independent SQL count over the same rule (full-text match or
+title `ILIKE`, plus `EXISTS` over author and category names). Recorded
+2026-11-23; also asserted in `TestLibrarySearch`.
+
+| Check | Query string | API total | Independent SQL | First 3 results |
+| --- | --- | --- | --- | --- |
+| Keyword (title/description) | `q=garden` | 20 | 20 | Ancient Garden; Broken Garden; Burning Garden |
+| Keyword (author name) | `q=bronte` | 12 | 12 | Electric City; Electric Door; Electric Garden |
+| Keyword (category name) | `q=fantasy` | 80 | 80 | Ancient Letter; Ancient Library; Ancient Memory |
+| Title filter | `title=ancient` | 10 | 10 | Ancient Season; Ancient Voyage; Ancient Memory |
+| Author filter (Emily Bronte) | `authorId=00000000-0000-4000-8001-000000000041` | 8 | 8 | Wild Season; Secret Voyage; Silent Memory |
+| Category filter (Fantasy) | `categoryId=00000000-0000-4000-8002-000000000001` | 80 | 80 | Hopeful Season; Wandering Season; Luminous Season |
+| Keyword + category | `q=garden&categoryId=...0001` | 8 | 8 | Endless Garden; Forgotten Garden; Golden Garden |
+| LIKE wildcard taken literally | `q=100%25` (`100%`) | 0 | 0 | — |
+
+`q=bronte` finds 12 books while the Emily Bronte filter finds 8: the keyword
+matches every author whose name contains "Bronte". Results are ordered by
+relevance (keyword) or newest first (filters only), so the first rows differ
+from the counts' order.
 
 **q07** `GET /api/reports/user-stats`
 

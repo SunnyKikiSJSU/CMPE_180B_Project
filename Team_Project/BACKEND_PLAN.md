@@ -66,8 +66,12 @@ work.
    records. There is no admin role in the MVP; document this limitation.
 10. **All workspace data is scoped to the authenticated user.** Ownership is
     enforced in SQL, not only in handlers.
-11. **Google Books is the discovery source; PostgreSQL stays the source of
-    truth.** Users search Google Books through the API
+11. **Superseded 2026-11-23: the discovery source is Open Library, not Google
+    Books** (Phase 4 notes, `conflict.md` "Not open"). The rest of this item and
+    the Google design in §4.4, §6.4, and §16 are kept as the original plan; the
+    import-on-use model is unchanged, with `books.openlibrary_id` (work ID) in
+    place of `google_books_id`. **Original item: Google Books is the discovery
+    source; PostgreSQL stays the source of truth.** Users search Google Books through the API
     (`GET /api/external/books`); nothing is stored by a search. A result is
     imported into `books` (`POST /api/books/import`) only when a user acts on
     it, so every shelf, progress, rating, and review row still references a
@@ -1160,6 +1164,11 @@ history rows. Direct updates and deletes without that setting are rejected.
 
 ### 6.4 Catalog services
 
+> **Outside search changed 2026-11-23:** `GET /api/external/books` and
+> `POST /api/books/import` use Open Library (`internal/openlibrary`), not
+> Google Books. The Google client, volume normalizer, and quota handling
+> described below were not built; see Phase 4 for what was.
+
 Library search (`GET /api/books`, `q01`):
 
 - Trim `q`; empty query returns the default sort (newest) with pagination.
@@ -1746,12 +1755,12 @@ Go 1.26 because Go 1.25 no longer receives security fixes, and `pgx` to 5.9.2
 - [x] Book create (`source = user`) and update (`403` for Google rows) with
       author/category upserts.
 - [x] Authors and categories endpoints.
-- [ ] `internal/googlebooks` client and normalizer with table tests against an
-      `httptest` fake.
-- [ ] `GET /api/external/books` with `bookId` marking and error mapping.
-- [ ] `POST /api/books/import` with dedupe by volume ID and ISBN-13, and a
+- [x] `internal/openlibrary` client and normalizer (replaces the planned
+      `internal/googlebooks`) with table tests against an `httptest` fake.
+- [x] `GET /api/external/books` with `bookId` marking and error mapping.
+- [x] `POST /api/books/import` with dedupe by work ID and ISBN-13, and a
       concurrent-import check (two parallel requests return the same `id`).
-- [ ] Search checks for title, author, category, and keyword (SQL evidence in
+- [x] Search checks for title, author, category, and keyword (SQL evidence in
       `docs/database/query-catalog.md`; integration tests optional).
 
 Library part done 2026-11-19 (branch `feat/catalog-phase4`), verified with
@@ -1761,8 +1770,35 @@ which failed to scan into the generated `string` and made `POST /api/books`
 without authors (and later Google volumes without authors) return 500. The
 nine queries now use `coalesce(..., 'Unknown author')`, as the contract
 specifies; sqlc was regenerated with the pinned 1.27.0 image (no Go type
-changes). Google Books search and import (the next three items) wait for
-conflict #5.
+changes). Google Books search and import waited for conflict #5.
+
+Outside search and import done 2026-11-23 (branch `feat/external-books-phase4b`)
+with **Open Library** instead of Google Books, so the instructor question in
+conflict #5 no longer applies. Verified with unit tests (normalizer, client
+against a fake server), router tests, integration tests against a fake Open
+Library on PostgreSQL 18 (`000001`-`000008`, seeds `001`-`004`), and one live
+search and import of *Dune* through the real API.
+
+- **One book per work.** `books.openlibrary_id` holds the work ID
+  (`OL893414W`, migration `000008`); `source = 'openlibrary'`. Search and
+  import use the same rule: the work ID, then any ISBN-13 of the work's
+  editions, so a seed or user-created book with that ISBN is the same book.
+- **Import reads two things in parallel** (the work record for the
+  description and redirects, and its search document for authors, subjects,
+  pages, and the best edition's ISBN and publisher), because each Open Library
+  call takes 2-7 s and the request limit is 10 s. A merged work's redirect is
+  followed once. `ImportOpenLibraryBook` returns `inserted` (`xmax = 0`) so
+  concurrent imports give one `201` and one `200`.
+- **Normalization:** ISBN-10s become ISBN-13s (check digits verified); up to
+  five categories from subjects, dropping catalog headings, list tags
+  (`nyt:...`), reading levels, and library tags, case- and hyphen-insensitive;
+  first publication year as a `year`-precision date; median page count; cover
+  as a covers.openlibrary.org link, never copied.
+- Imported books are read-only (`PATCH` is `403`), like the planned Google rows.
+- `GOOGLE_BOOKS_*` settings were removed; `OPENLIBRARY_USER_AGENT` (Open
+  Library asks frequent callers to identify themselves) and `OPENLIBRARY_URL`
+  replace them. No API key is needed. `NOT_IMPLEMENTED` (501) is gone: every
+  contract route is implemented.
 
 **Exit:** `q01` and `q02` return validated results; a book with multiple
 authors/categories renders completely; a Google result can be imported once
@@ -1970,6 +2006,8 @@ The project is complete when:
 | Concurrent summary updates look flaky | Weak evidence | Record isolation level, seed state, session order, and final counts; use deterministic fixtures |
 | No admin role | Any authenticated user can add catalog records | Document the MVP limitation; add `users.role` in a post-MVP migration if required |
 | Authors are identified by name (`authors_name_ci_unique_idx`) | Two different people with the same name share one author row | Accepted for the MVP: Google returns names without IDs and `UpsertAuthor` depends on the unique name. Documented in `ER_diagram.md` section 8 |
+| Open Library unavailable or slow during the demo (calls take 2-7 s) | Discovery search and import fail | 9 s timeout and `UPSTREAM_UNAVAILABLE`; the UI falls back to library search; reports and evidence use seed data only; import the demo books before the presentation |
+| *(Original Google rows below are superseded by Open Library.)* | | |
 | Google Books unavailable or slow during the demo | Discovery search and import fail | 5 s timeout and `UPSTREAM_UNAVAILABLE`; the UI falls back to library search; reports and evidence use seed data only; import the demo books before the presentation |
 | Google quota exhausted (about 1,000 requests/day by default; anonymous is lower) | Search returns `502 UPSTREAM_UNAVAILABLE` | Use an API key; the UI falls back to library search; tests use a fake server, never the real API |
 | Google query operators misbehave (`intitle:`/`inauthor:`/`isbn:` returned 0 results in October 2026 until a reported fix on 2026-11-02) | Filtered Google search returns nothing | Rehearse the demo queries; free-text `q` and library search still work |
@@ -1986,12 +2024,11 @@ The project is complete when:
 3. Whether the combined `PUT /api/books/{bookId}/review` endpoint should be the
    only review form path or coexist with separate review and rating endpoints.
    This plan keeps both.
-4. **Decided 2026-11-10:** users search Google Books live and books are
-   imported on first use (Section 2, item 11). Still open: whether the
-   instructor accepts storing acted-on Google books under Google's API terms.
-   If not, the fallback is to store only `google_books_id` plus the user's own
-   data and fetch display metadata from Google at read time, which removes
-   library search for those books.
+4. **Decided 2026-11-23:** users search Open Library live and import a work
+   when they act on it (Section 2, item 11). Open Library asserts no copyright
+   over its catalog data, so storing imported works needs no instructor
+   decision; this replaces the Google Books plan, whose terms restrict stored
+   copies.
 5. Whether to keep the library search tab visible to users or use
    `GET /api/books` only for evidence and filters. This plan keeps the tab.
 6. Whether the instructor accepts PostgreSQL 18, because the marking criteria

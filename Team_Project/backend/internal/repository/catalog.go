@@ -44,6 +44,7 @@ func (c *Catalog) InTx(ctx context.Context, fn func(*Catalog) error) error {
 type bookRow struct {
 	BookID                 uuid.UUID
 	GoogleBooksID          pgtype.Text
+	OpenlibraryID          pgtype.Text
 	Isbn13                 pgtype.Text
 	Title                  string
 	Description            pgtype.Text
@@ -85,9 +86,13 @@ func (r bookRow) book() (domain.Book, error) {
 		n := r.PageCount.Int32
 		b.PageCount = &n
 	}
-	// Seed rows hold synthetic volume IDs, so only real Google rows get a link.
-	if r.Source == "google" && b.GoogleBooksID != nil {
+	// Seed rows hold synthetic volume IDs, so only imported rows get a link.
+	switch {
+	case r.Source == "google" && b.GoogleBooksID != nil:
 		link := "https://books.google.com/books?id=" + *b.GoogleBooksID
+		b.InfoLink = &link
+	case r.Source == "openlibrary" && r.OpenlibraryID.Valid:
+		link := "https://openlibrary.org/works/" + r.OpenlibraryID.String
 		b.InfoLink = &link
 	}
 	return b, nil
@@ -131,7 +136,7 @@ func (c *Catalog) Search(ctx context.Context, p SearchParams) ([]domain.Book, in
 	var total int64
 	for _, r := range rows {
 		total = int64(r.TotalCount)
-		b, err := bookRow{r.BookID, r.GoogleBooksID, r.Isbn13, r.Title, r.Description, r.PublishedDate, r.Publisher, r.PageCount, r.CoverUrl,
+		b, err := bookRow{r.BookID, r.GoogleBooksID, r.OpenlibraryID, r.Isbn13, r.Title, r.Description, r.PublishedDate, r.Publisher, r.PageCount, r.CoverUrl,
 			r.Source, r.PublishedDatePrecision, r.PrimaryAuthor, r.Authors, r.Categories, r.AverageRating, r.RatingCount, r.ReviewCount}.book()
 		if err != nil {
 			return nil, 0, err
@@ -268,7 +273,7 @@ func (c *Catalog) BooksByAuthor(ctx context.Context, id uuid.UUID, page domain.P
 	var total int64
 	for _, r := range rows {
 		total = int64(r.TotalCount)
-		b, err := bookRow{r.BookID, r.GoogleBooksID, r.Isbn13, r.Title, r.Description, r.PublishedDate, r.Publisher, r.PageCount, r.CoverUrl,
+		b, err := bookRow{r.BookID, r.GoogleBooksID, r.OpenlibraryID, r.Isbn13, r.Title, r.Description, r.PublishedDate, r.Publisher, r.PageCount, r.CoverUrl,
 			r.Source, r.PublishedDatePrecision, r.PrimaryAuthor, r.Authors, r.Categories, r.AverageRating, r.RatingCount, r.ReviewCount}.book()
 		if err != nil {
 			return nil, 0, err
@@ -310,7 +315,7 @@ func (c *Catalog) BooksByCategory(ctx context.Context, id uuid.UUID, page domain
 	var total int64
 	for _, r := range rows {
 		total = int64(r.TotalCount)
-		b, err := bookRow{r.BookID, r.GoogleBooksID, r.Isbn13, r.Title, r.Description, r.PublishedDate, r.Publisher, r.PageCount, r.CoverUrl,
+		b, err := bookRow{r.BookID, r.GoogleBooksID, r.OpenlibraryID, r.Isbn13, r.Title, r.Description, r.PublishedDate, r.Publisher, r.PageCount, r.CoverUrl,
 			r.Source, r.PublishedDatePrecision, r.PrimaryAuthor, r.Authors, r.Categories, r.AverageRating, r.RatingCount, r.ReviewCount}.book()
 		if err != nil {
 			return nil, 0, err

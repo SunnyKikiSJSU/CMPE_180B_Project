@@ -65,7 +65,11 @@ CREATE TABLE books (
     source TEXT NOT NULL DEFAULT 'user',
     published_date_precision TEXT,
     imported_at TIMESTAMPTZ,
+    openlibrary_id TEXT,
     CONSTRAINT books_google_books_id_unique UNIQUE (google_books_id),
+    CONSTRAINT books_openlibrary_id_unique UNIQUE (openlibrary_id),
+    CONSTRAINT books_openlibrary_id_format
+        CHECK (openlibrary_id IS NULL OR openlibrary_id ~ '^OL[0-9]+W$'),
     CONSTRAINT books_isbn13_unique UNIQUE (isbn13),
     CONSTRAINT books_title_not_blank
         CHECK (char_length(btrim(title)) > 0),
@@ -74,7 +78,12 @@ CREATE TABLE books (
     CONSTRAINT books_page_count_positive
         CHECK (page_count IS NULL OR page_count > 0),
     CONSTRAINT books_source_valid
-        CHECK (source IN ('seed', 'google', 'user')),
+        CHECK (source IN ('seed', 'google', 'openlibrary', 'user')),
+    CONSTRAINT books_openlibrary_source_complete
+        CHECK (
+            source <> 'openlibrary'
+            OR (openlibrary_id IS NOT NULL AND imported_at IS NOT NULL)
+        ),
     CONSTRAINT books_google_source_complete
         CHECK (
             source <> 'google'

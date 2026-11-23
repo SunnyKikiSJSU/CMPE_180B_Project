@@ -17,6 +17,8 @@ Place versioned `golang-migrate` migration pairs in this directory:
 000006_book_sources.down.sql
 000007_rating_summary_locking.up.sql
 000007_rating_summary_locking.down.sql
+000008_openlibrary_source.up.sql
+000008_openlibrary_source.down.sql
 ```
 
 The Compose `migrate` service mounts this directory at `/migrations` and runs
@@ -33,6 +35,7 @@ all pending migrations against the local PostgreSQL database.
 | `000005_progress_and_history_fixes` | Replaces three `000003` functions: page/status transitions in `fn_validate_reading_progress` (a finished book can be re-read, paused, or re-queued), `BM001` for stale versions in `fn_update_reading_progress`, and cascade-safe `fn_block_history_mutation`. The down file restores the `000003` definitions exactly. |
 | `000006_book_sources` | `books.source` (`seed`, `google`, `user`), `books.published_date_precision` (`year`, `month`, `day`), and `books.imported_at` with four CHECK constraints. Backfills seed rows (`seed-book-*`, `smoke-test-*`) as `seed` and existing dates as `day`. The down file drops only these columns; imported rows stay. |
 | `000007_rating_summary_locking` | Replaces `fn_refresh_book_rating_summary` so it locks the book's summary row before reading ratings and reviews. Without the lock, two concurrent ratings of one book could leave `rating_count` and `average_rating` missing one of them (lost update under `READ COMMITTED`). The up file also recomputes every existing summary once. The down file restores the `000003` definition. Evidence: `docs/evidence/concurrency.md`. |
+| `000008_openlibrary_source` | `books.openlibrary_id` (Open Library work ID such as `OL893414W`, unique, format-checked), `source` value `openlibrary`, and a CHECK that such rows have the ID and `imported_at`. The down file turns imported rows into `user` rows and drops the column. |
 
 ### Book sources (after `000006`)
 

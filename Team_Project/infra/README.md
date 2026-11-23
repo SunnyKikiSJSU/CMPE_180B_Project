@@ -155,7 +155,7 @@ Storage encryption is on (`storage_encrypted = true`); it was set before the
 first apply, so it replaced nothing. Changing it later would replace the
 database. The app security group's outbound
 HTTPS/HTTP to `0.0.0.0/0` is also flagged; the instance needs it for packages,
-images, Google Books, and AWS APIs (there is no NAT or VPC endpoint in this
+images, Open Library, and AWS APIs (there is no NAT or VPC endpoint in this
 course setup).
 
 ## Cost and teardown

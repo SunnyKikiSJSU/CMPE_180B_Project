@@ -125,8 +125,8 @@ type CreateBookRow struct {
 	PublishedDatePrecision pgtype.Text
 }
 
-// User-created catalog record (POST /api/books). Google rows are created only
-// by ImportGoogleBook, so this query never sets google_books_id.
+// User-created catalog record (POST /api/books). It never sets an outside ID;
+// imported rows come only from ImportOpenLibraryBook.
 func (q *Queries) CreateBook(ctx context.Context, arg CreateBookParams) (CreateBookRow, error) {
 	row := q.db.QueryRow(ctx, createBook,
 		arg.Isbn13,
@@ -154,51 +154,36 @@ func (q *Queries) CreateBook(ctx context.Context, arg CreateBookParams) (CreateB
 	return i, err
 }
 
-const getBookByExternalID = `-- name: GetBookByExternalID :one
-WITH params AS (
-    SELECT
-        $1::text AS google_books_id,
-        $2::text AS isbn13
-)
+const findImportedBook = `-- name: FindImportedBook :one
 SELECT
     b.book_id,
-    b.google_books_id,
-    b.isbn13,
-    b.title,
-    b.source
+    b.openlibrary_id,
+    b.isbn13
 FROM books b
-CROSS JOIN params p
-WHERE (p.google_books_id IS NOT NULL AND b.google_books_id = p.google_books_id)
-   OR (p.isbn13 IS NOT NULL AND b.isbn13 = p.isbn13)
-ORDER BY (b.google_books_id IS NOT DISTINCT FROM p.google_books_id) DESC
+WHERE b.openlibrary_id = $1::text
+   OR b.isbn13 = ANY ($2::text[])
+ORDER BY (b.openlibrary_id IS NOT DISTINCT FROM $1::text) DESC, b.book_id
 LIMIT 1
 `
 
-type GetBookByExternalIDParams struct {
-	GoogleBooksID pgtype.Text
-	Isbn13        pgtype.Text
+type FindImportedBookParams struct {
+	OpenlibraryID string
+	Isbn13s       []string
 }
 
-type GetBookByExternalIDRow struct {
+type FindImportedBookRow struct {
 	BookID        uuid.UUID
-	GoogleBooksID pgtype.Text
+	OpenlibraryID pgtype.Text
 	Isbn13        pgtype.Text
-	Title         string
-	Source        string
 }
 
-// Import dedupe: finds an existing local row for a Google volume, first by
-// volume ID, then by ISBN-13 (several Google volume IDs can be one book).
-func (q *Queries) GetBookByExternalID(ctx context.Context, arg GetBookByExternalIDParams) (GetBookByExternalIDRow, error) {
-	row := q.db.QueryRow(ctx, getBookByExternalID, arg.GoogleBooksID, arg.Isbn13)
-	var i GetBookByExternalIDRow
-	err := row.Scan(
-		&i.BookID,
-		&i.GoogleBooksID,
-		&i.Isbn13,
-		&i.Title,
-		&i.Source,
-	)
+// Import dedupe (POST /api/books/import): the local row for an Open Library
+// work, found by work ID first, then by any ISBN-13 of the work's editions
+// (a seed or user-created book with the same ISBN is the same book).
+func (q *Queries) FindImportedBook(ctx context.Context, arg FindImportedBookParams) (FindImportedBookRow, error) {
+	row := q.db.QueryRow(ctx, findImportedBook, arg.OpenlibraryID, arg.Isbn13s)
+	var i FindImportedBookRow
+	err := row.Scan(&i.BookID, &i.OpenlibraryID, &i.Isbn13)
 	return i, err
 }
 
@@ -206,6 +191,7 @@ const getBookByID = `-- name: GetBookByID :one
 SELECT
     b.book_id,
     b.google_books_id,
+    b.openlibrary_id,
     b.isbn13,
     b.title,
     b.description,
@@ -261,6 +247,7 @@ WHERE b.book_id = $1
 type GetBookByIDRow struct {
 	BookID                 uuid.UUID
 	GoogleBooksID          pgtype.Text
+	OpenlibraryID          pgtype.Text
 	Isbn13                 pgtype.Text
 	Title                  string
 	Description            pgtype.Text
@@ -284,6 +271,7 @@ func (q *Queries) GetBookByID(ctx context.Context, bookID uuid.UUID) (GetBookByI
 	err := row.Scan(
 		&i.BookID,
 		&i.GoogleBooksID,
+		&i.OpenlibraryID,
 		&i.Isbn13,
 		&i.Title,
 		&i.Description,
@@ -303,9 +291,9 @@ func (q *Queries) GetBookByID(ctx context.Context, bookID uuid.UUID) (GetBookByI
 	return i, err
 }
 
-const importGoogleBook = `-- name: ImportGoogleBook :one
+const importOpenLibraryBook = `-- name: ImportOpenLibraryBook :one
 INSERT INTO books (
-    google_books_id,
+    openlibrary_id,
     isbn13,
     title,
     description,
@@ -327,28 +315,18 @@ VALUES (
     $7,
     $8,
     $9,
-    'google',
+    'openlibrary',
     now()
 )
-ON CONFLICT (google_books_id) DO UPDATE
-    SET google_books_id = books.google_books_id
+ON CONFLICT (openlibrary_id) DO UPDATE
+    SET openlibrary_id = books.openlibrary_id
 RETURNING
     book_id,
-    google_books_id,
-    isbn13,
-    title,
-    description,
-    published_date,
-    publisher,
-    page_count,
-    cover_url,
-    source,
-    published_date_precision,
-    imported_at
+    (xmax = 0) AS inserted
 `
 
-type ImportGoogleBookParams struct {
-	GoogleBooksID          string
+type ImportOpenLibraryBookParams struct {
+	OpenlibraryID          string
 	Isbn13                 pgtype.Text
 	Title                  string
 	Description            pgtype.Text
@@ -359,30 +337,20 @@ type ImportGoogleBookParams struct {
 	CoverUrl               pgtype.Text
 }
 
-type ImportGoogleBookRow struct {
-	BookID                 uuid.UUID
-	GoogleBooksID          pgtype.Text
-	Isbn13                 pgtype.Text
-	Title                  string
-	Description            pgtype.Text
-	PublishedDate          pgtype.Date
-	Publisher              pgtype.Text
-	PageCount              pgtype.Int4
-	CoverUrl               pgtype.Text
-	Source                 string
-	PublishedDatePrecision pgtype.Text
-	ImportedAt             pgtype.Timestamptz
+type ImportOpenLibraryBookRow struct {
+	BookID   uuid.UUID
+	Inserted bool
 }
 
-// Creates the local row for a Google volume (POST /api/books/import). The
-// service fetches the volume from Google by ID and normalizes it first; client
-// metadata is never trusted. Concurrent imports of the same volume return the
-// same row: the no-op DO UPDATE makes RETURNING yield the existing row. An
+// Creates the local row for an Open Library work (POST /api/books/import).
+// The service fetches the work from Open Library by ID and normalizes it;
+// client metadata is never trusted. Concurrent imports of the same work return
+// the same row: the no-op DO UPDATE makes RETURNING yield the existing row. An
 // ISBN-13 collision with a different row raises 23505 on books_isbn13_unique;
-// the service then reruns GetBookByExternalID and returns that row.
-func (q *Queries) ImportGoogleBook(ctx context.Context, arg ImportGoogleBookParams) (ImportGoogleBookRow, error) {
-	row := q.db.QueryRow(ctx, importGoogleBook,
-		arg.GoogleBooksID,
+// the service then reruns FindImportedBook and returns that row.
+func (q *Queries) ImportOpenLibraryBook(ctx context.Context, arg ImportOpenLibraryBookParams) (ImportOpenLibraryBookRow, error) {
+	row := q.db.QueryRow(ctx, importOpenLibraryBook,
+		arg.OpenlibraryID,
 		arg.Isbn13,
 		arg.Title,
 		arg.Description,
@@ -392,49 +360,37 @@ func (q *Queries) ImportGoogleBook(ctx context.Context, arg ImportGoogleBookPara
 		arg.PageCount,
 		arg.CoverUrl,
 	)
-	var i ImportGoogleBookRow
-	err := row.Scan(
-		&i.BookID,
-		&i.GoogleBooksID,
-		&i.Isbn13,
-		&i.Title,
-		&i.Description,
-		&i.PublishedDate,
-		&i.Publisher,
-		&i.PageCount,
-		&i.CoverUrl,
-		&i.Source,
-		&i.PublishedDatePrecision,
-		&i.ImportedAt,
-	)
+	var i ImportOpenLibraryBookRow
+	err := row.Scan(&i.BookID, &i.Inserted)
 	return i, err
 }
 
 const listBooksByExternalIDs = `-- name: ListBooksByExternalIDs :many
 SELECT
     b.book_id,
-    b.google_books_id,
+    b.openlibrary_id,
     b.isbn13
 FROM books b
-WHERE b.google_books_id = ANY ($1::text[])
+WHERE b.openlibrary_id = ANY ($1::text[])
    OR b.isbn13 = ANY ($2::text[])
 `
 
 type ListBooksByExternalIDsParams struct {
-	GoogleBooksIds []string
+	OpenlibraryIds []string
 	Isbn13s        []string
 }
 
 type ListBooksByExternalIDsRow struct {
 	BookID        uuid.UUID
-	GoogleBooksID pgtype.Text
+	OpenlibraryID pgtype.Text
 	Isbn13        pgtype.Text
 }
 
-// Marks Google search results that already exist locally, so the response can
-// carry the local bookId. One call per search page (at most 40 IDs).
+// Marks outside search results that already exist locally, so each result can
+// carry its local bookId. One call per search page; the same rule as
+// FindImportedBook (work ID, then ISBN-13).
 func (q *Queries) ListBooksByExternalIDs(ctx context.Context, arg ListBooksByExternalIDsParams) ([]ListBooksByExternalIDsRow, error) {
-	rows, err := q.db.Query(ctx, listBooksByExternalIDs, arg.GoogleBooksIds, arg.Isbn13s)
+	rows, err := q.db.Query(ctx, listBooksByExternalIDs, arg.OpenlibraryIds, arg.Isbn13s)
 	if err != nil {
 		return nil, err
 	}
@@ -442,7 +398,7 @@ func (q *Queries) ListBooksByExternalIDs(ctx context.Context, arg ListBooksByExt
 	items := []ListBooksByExternalIDsRow{}
 	for rows.Next() {
 		var i ListBooksByExternalIDsRow
-		if err := rows.Scan(&i.BookID, &i.GoogleBooksID, &i.Isbn13); err != nil {
+		if err := rows.Scan(&i.BookID, &i.OpenlibraryID, &i.Isbn13); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -507,6 +463,7 @@ matched AS (
 SELECT
     b.book_id,
     b.google_books_id,
+    b.openlibrary_id,
     b.isbn13,
     b.title,
     b.description,
@@ -602,6 +559,7 @@ type SearchBooksParams struct {
 type SearchBooksRow struct {
 	BookID                 uuid.UUID
 	GoogleBooksID          pgtype.Text
+	OpenlibraryID          pgtype.Text
 	Isbn13                 pgtype.Text
 	Title                  string
 	Description            pgtype.Text
@@ -623,14 +581,14 @@ type SearchBooksRow struct {
 // Catalog search, detail, and catalog-write queries.
 //
 // Two kinds of search exist:
-//   - Google search (GET /api/external/books) calls the Google Books API from
-//     the Go service and stores nothing. ListBooksByExternalIDs marks which
-//     results are already in the local library.
+//   - Outside search (GET /api/external/books) calls the Open Library search
+//     API from the Go service and stores nothing. ListBooksByExternalIDs marks
+//     which results are already in the local library.
 //   - Library search (SearchBooks, GET /api/books) searches the local books
-//     table: seed rows, imported Google rows, and user-created rows.
+//     table: seed, imported, and user-created rows.
 //
-// A Google result becomes a local row through ImportGoogleBook only when a
-// user acts on it, because every user-activity table references books.book_id.
+// An Open Library work becomes a local row through ImportOpenLibraryBook when a
+// user imports it, because every user-activity table references books.book_id.
 //
 // Library search uses both full-text ranking (title/description) and
 // trigram-style ILIKE membership through authors and categories. EXISTS keeps
@@ -658,6 +616,7 @@ func (q *Queries) SearchBooks(ctx context.Context, arg SearchBooksParams) ([]Sea
 		if err := rows.Scan(
 			&i.BookID,
 			&i.GoogleBooksID,
+			&i.OpenlibraryID,
 			&i.Isbn13,
 			&i.Title,
 			&i.Description,
@@ -700,7 +659,7 @@ SET
     cover_url = coalesce($6, cover_url),
     isbn13 = coalesce($7, isbn13)
 WHERE book_id = $8
-  AND source <> 'google'
+  AND source NOT IN ('google', 'openlibrary')
 RETURNING
     book_id,
     google_books_id,
@@ -740,9 +699,9 @@ type UpdateBookRow struct {
 	PublishedDatePrecision pgtype.Text
 }
 
-// Google-imported rows are read-only here: their content belongs to Google and
-// is shown with Google attribution. The service returns 403 for them; the
-// source filter is the database-side guard.
+// Imported rows (Google, Open Library) are read-only here: they mirror an
+// outside catalog and are shown with its attribution. The service returns 403
+// for them; the source filter is the database-side guard.
 func (q *Queries) UpdateBook(ctx context.Context, arg UpdateBookParams) (UpdateBookRow, error) {
 	row := q.db.QueryRow(ctx, updateBook,
 		arg.Title,

@@ -88,6 +88,7 @@ SELECT
     b.page_count,
     b.cover_url,
     b.google_books_id,
+    b.openlibrary_id,
     b.source,
     b.published_date_precision,
     coalesce(

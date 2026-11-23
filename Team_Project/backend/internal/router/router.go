@@ -1,6 +1,5 @@
 // Package router declares every route of docs/api/openapi.yaml, its auth
-// group, and the middleware order (BACKEND_PLAN §6.2). Routes that later
-// phases implement answer 501 NOT_IMPLEMENTED; anything else is 404.
+// group, and the middleware order (BACKEND_PLAN §6.2). Anything else is 404.
 package router
 
 import (
@@ -15,14 +14,15 @@ import (
 )
 
 type Deps struct {
-	Health  handlers.Health
-	Auth    handlers.Auth
-	Users   handlers.Users
-	Catalog handlers.Catalog
-	Reading handlers.Reading
-	Reviews handlers.Reviews
-	Reports handlers.Reports
-	Authn   middleware.Authenticator
+	Health   handlers.Health
+	Auth     handlers.Auth
+	Users    handlers.Users
+	Catalog  handlers.Catalog
+	Reading  handlers.Reading
+	Reviews  handlers.Reviews
+	Reports  handlers.Reports
+	External handlers.External
+	Authn    middleware.Authenticator
 }
 
 func New(d Deps) http.Handler {
@@ -39,15 +39,13 @@ func New(d Deps) http.Handler {
 	r.Get("/healthz", d.Health.Live)
 	r.Get("/readyz", d.Health.Ready)
 
-	todo := httpx.NotImplemented
-
 	r.Route("/api", func(api chi.Router) {
 		// Public routes; a valid session adds the caller's context where a
 		// later phase uses it (for example myProgress on a book).
 		api.Group(func(pub chi.Router) {
 			pub.Use(d.Authn.Optional)
 			pub.Get("/books", d.Catalog.SearchBooks)
-			pub.Get("/external/books", todo)
+			pub.Get("/external/books", d.External.Search)
 			pub.Get("/books/{bookId}", d.Catalog.GetBook)
 			pub.Get("/books/{bookId}/ratings", d.Reviews.Ratings)
 			pub.Get("/books/{bookId}/reviews", d.Reviews.BookReviews)
@@ -83,7 +81,7 @@ func New(d Deps) http.Handler {
 			priv.Get("/users/me/reviews", d.Reviews.MyReviews)
 			priv.Get("/users/me/ratings", d.Reviews.MyRatings)
 			priv.Post("/books", d.Catalog.CreateBook)
-			priv.Post("/books/import", todo)
+			priv.Post("/books/import", d.External.Import)
 			priv.Patch("/books/{bookId}", d.Catalog.UpdateBook)
 			priv.Post("/books/{bookId}/ratings", d.Reviews.Rate)
 			priv.Delete("/books/{bookId}/ratings", d.Reviews.DeleteRating)

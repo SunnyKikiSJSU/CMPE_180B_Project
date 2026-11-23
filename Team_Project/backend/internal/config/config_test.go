@@ -51,10 +51,10 @@ func TestLoadRejects(t *testing.T) {
 		"placeholder secret outside local": {"APP_ENV": "rds", "JWT_SECRET": "local-development-secret", "DB_PASSWORD": "x"},
 		"no database credentials":          {"JWT_SECRET": "s"},
 		"bad port":                         {"JWT_SECRET": "s", "DB_PASSWORD": "x", "PORT": "70000"},
-		"bad country":                      {"JWT_SECRET": "s", "DB_PASSWORD": "x", "GOOGLE_BOOKS_COUNTRY": "USA"},
 		"bad sslmode":                      {"JWT_SECRET": "s", "DB_PASSWORD": "x", "DB_SSLMODE": "on"},
 		"bad secret ARN":                   {"JWT_SECRET": "s", "DB_SECRET_ARN": "my-secret"},
 		"bad cookie flag":                  {"JWT_SECRET": "s", "DB_PASSWORD": "x", "COOKIE_SECURE": "yes please"},
+		"bad Open Library URL":             {"JWT_SECRET": "s", "DB_PASSWORD": "x", "OPENLIBRARY_URL": "ftp://openlibrary.org"},
 	}
 	for name, values := range cases {
 		if _, err := Load(env(values)); err == nil {

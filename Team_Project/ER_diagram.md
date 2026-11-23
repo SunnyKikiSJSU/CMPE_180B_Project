@@ -22,7 +22,7 @@ and reading-activity data. It uses:
 | Small rectangle attached by a dotted line | **Attribute carried by the relationship** (a column on the junction/association table) |
 | Line ending in `1..1`, `0..*`, `1..*` | **Cardinality** of that relationship end |
 | `[PK]`, `[FK]` | Primary key / foreign key |
-| `U` / `US` prefix | Unique column (`US email`, `US name`, `US google_books_id`, `US isbn13`) |
+| `U` / `US` prefix | Unique column (`US email`, `US name`, `US google_books_id`, `US openlibrary_id`, `US isbn13`) |
 
 Seven entities are drawn as boxes:
 
@@ -95,7 +95,7 @@ The attribute lists below are exactly what is drawn.
 | `name` | `US` (unique, ignoring case and surrounding spaces) |
 
 An author is identified by name. Two different people who share a name are
-stored as one author, because Google Books returns names without author IDs and
+stored as one author, because imported works carry author names, not IDs, and
 the import relies on the unique name to avoid duplicate rows. See
 [Known limitation: authors are identified by name](#8-known-limitation-authors-are-identified-by-name).
 
@@ -121,7 +121,8 @@ the import relies on the unique name to avoid duplicate rows. See
 | Attribute | Marker |
 | --- | --- |
 | `book_id` | `[PK]` |
-| `google_books_id` | `US` (unique, nullable) |
+| `google_books_id` | `US` (unique, nullable; reserved for a Google source) |
+| `openlibrary_id` | `US` (unique, nullable, Open Library work ID; added by `000008`) |
 | `isbn13` | `US` (unique, nullable, 13 digits) |
 | `title` | — |
 | `description` | — |
@@ -129,9 +130,9 @@ the import relies on the unique name to avoid duplicate rows. See
 | `publisher` | — |
 | `page_count` | — |
 | `cover_url` | — |
-| `source` | — (`seed`, `google`, `user`; added by migration `000006`) |
+| `source` | — (`seed`, `google`, `user`, added by migration `000006`; `openlibrary` added by `000008`) |
 | `published_date_precision` | — (`year`, `month`, `day`; added by `000006`) |
-| `imported_at` | — (set for Google-imported rows; added by `000006`) |
+| `imported_at` | — (set for imported rows; added by `000006`) |
 
 The full-text column `books.search_vector` (migration `000002`) is intentionally
 not drawn.
@@ -156,7 +157,7 @@ by application code. The row is created automatically when a book is inserted.
 | `has` | `USERS` | `USER_PROFILES` | 1 : 1 | — | `user_profiles` (shared PK) |
 | `owns` | `USERS` | `SHELVES` | 1 : 0..* | — | `shelves.user_id` |
 | `User Shelf Items` | `SHELVES` | `BOOKS` | 1 : 0..* entries per shelf; each entry → 1 book | `added_at`, `moved_at` | `user_shelf_items` (M:N) |
-| `book author` | `AUTHORS` | `BOOKS` | M:N, `0..*` on both sides: a book may have no authors (some Google volumes list none) and an author may have no books | `book_id`, `author_id` | `book_authors` (composite PK) |
+| `book author` | `AUTHORS` | `BOOKS` | M:N, `0..*` on both sides: a book may have no authors (some imported works list none) and an author may have no books | `book_id`, `author_id` | `book_authors` (composite PK) |
 | `book category` | `CATEGORIES` | `BOOKS` | M:N, `0..*` on both sides | `book_id`, `category_id` | `book_categories` (composite PK) |
 | `reading progress` | `USERS` | `BOOKS` | one row per user–book pair | `percent_complete`, `current_page`, `status`, `version`, `updated_at` | `reading_progress` (unique `user_id, book_id`) |
 | `reading history` | `USERS` | `BOOKS` | append-only event log | `history_id`, `event_type`, `from_status`, `to_status` | `reading_history` |
@@ -254,6 +255,7 @@ erDiagram
     BOOKS {
         uuid book_id PK
         text google_books_id UK
+        text openlibrary_id UK
         varchar isbn13 UK
         text title
         text description
@@ -342,7 +344,7 @@ erDiagram
 
 ## 7. Consistency check against the migrations
 
-The diagram matches migrations `000001`–`000006`:
+The diagram matches migrations `000001`–`000006`; `000008` adds `books.openlibrary_id`, which the PNG does not show yet (`conflict.md` #1):
 
 - Every entity box has the columns the schema defines for that table, except
   `books.search_vector` (section 3). The diamonds carry the extra columns of
@@ -360,8 +362,8 @@ The diagram matches migrations `000001`–`000006`:
 Not shown, but implemented: `search_vector` and its GIN index (`000002`), the
 case-insensitive form of the author and category name uniqueness and the
 one-shelf-per-status-type partial index (`000003`), reporting indexes
-(`000004`), the append-only history trigger (`000005`), and the Google-source
-CHECK constraints (`000006`).
+(`000004`), the append-only history trigger (`000005`), and the source
+CHECK constraints (`000006`, `000008`).
 
 ## 8. Known limitation: authors are identified by name
 
@@ -371,7 +373,8 @@ same name therefore share one `authors` row, and their books are linked to it.
 
 This is a deliberate trade-off for the MVP:
 
-- Google Books returns author names only, with no author IDs, so an import
+- Imported works carry author names only (Open Library has author keys, but
+  seed and user-created books do not), so an import
   cannot tell same-named people apart.
 - `UpsertAuthor` uses the unique name as its conflict target. Without it, every
   imported book would add another row for the same author, which would break the

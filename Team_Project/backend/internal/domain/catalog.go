@@ -72,3 +72,26 @@ type Page struct {
 }
 
 func (p Page) Offset() int32 { return int32((p.Number - 1) * p.Size) }
+
+// ExternalBook is docs/api/openapi.yaml#/components/schemas/ExternalBook: one
+// normalized outside search result (an Open Library work). Not stored.
+type ExternalBook struct {
+	Source        string     `json:"source"`
+	ExternalID    string     `json:"externalId"`
+	BookID        *uuid.UUID `json:"bookId"`
+	Title         string     `json:"title"`
+	Subtitle      *string    `json:"subtitle"`
+	Authors       []string   `json:"authors"`
+	Categories    []string   `json:"categories"`
+	Description   *string    `json:"description"`
+	PublishedDate *string    `json:"publishedDate"`
+	Publisher     *string    `json:"publisher"`
+	PageCount     *int32     `json:"pageCount"`
+	ISBN13        *string    `json:"isbn13"`
+	CoverURL      *string    `json:"coverUrl"`
+	InfoLink      string     `json:"infoLink"`
+
+	// ISBN13s lists every ISBN-13 of the work's editions; it finds a local
+	// book with the same ISBN (deduplication) and is never serialized.
+	ISBN13s []string `json:"-"`
+}

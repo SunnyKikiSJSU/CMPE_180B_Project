@@ -92,7 +92,7 @@ func (r *Reading) ShelfBooks(ctx context.Context, userID, shelfID uuid.UUID, sor
 	var total int64
 	for _, row := range rows {
 		total = int64(row.TotalCount)
-		book, err := bookRow{row.BookID, row.GoogleBooksID, row.Isbn13, row.Title, row.Description, row.PublishedDate, row.Publisher,
+		book, err := bookRow{row.BookID, row.GoogleBooksID, row.OpenlibraryID, row.Isbn13, row.Title, row.Description, row.PublishedDate, row.Publisher,
 			row.PageCount, row.CoverUrl, row.Source, row.PublishedDatePrecision, row.PrimaryAuthor, row.Authors, row.Categories,
 			row.AverageRating, row.RatingCount, row.ReviewCount}.book()
 		if err != nil {

@@ -13,7 +13,7 @@ request (`backend/internal/services/reading.go` and `reviews.go`).
 
 ## How to reproduce
 
-On a database with migrations `000001`-`000007` and seeds `001`-`004`:
+On a database with migrations `000001`-`000008` and seeds `001`-`004`:
 
 ```bash
 psql "$DATABASE_URL" -v ON_ERROR_STOP=0 -f database/tests/transactions_phase5.sql

@@ -62,7 +62,7 @@ The JSON has `host`, `dbname`, `username`, and `password`. Copy them into
 | --- | --- | --- |
 | `docker-compose-rdbs.yml` | `[x]` | `api`, `migrate`, `seed`, and a `psql` client pointed at `RDS_*` values with `sslmode=require` |
 | `./scripts/dev.sh rds` | `[x]` | Builds `RDS_DATABASE_URL`, runs migrations and seeds, starts the API, waits for `/readyz` |
-| Migrations and seeds | `[x]` | `000001`-`000007` and seeds `001`-`004` verified on clean PostgreSQL 18 locally; not yet recorded against RDS |
+| Migrations and seeds | `[x]` | `000001`-`000008` and seeds `001`-`004` verified on clean PostgreSQL 18 locally; not yet recorded against RDS |
 | `.env.example` RDS values | `[x]` | `RDS_DB=appdb` and `RDS_USER=appadmin` match the Terraform defaults; comments say where each value comes from (a Terraform output or the secret) |
 
 ### 1.3 Optional data-tier hardening
@@ -85,9 +85,9 @@ yet.
 | Topic | Decision |
 | --- | --- |
 | Compute | EC2, not ECS Fargate. No ECR, ALB, CloudFront, Route 53, or CloudWatch |
-| Application secrets | `.env` on the instance (mode 600, never committed): `JWT_SECRET`, Google key, and either the database password or `DB_SECRET_ARN`. With `DB_SECRET_ARN` set, the API reads the database credentials from the team's Secrets Manager secret at startup using the instance profile from `iam.tf` (conflict #4, decided 2026-11-19). Migrations and seeds still use the `RDS_*` values |
+| Application secrets | `.env` on the instance (mode 600, never committed): `JWT_SECRET` and either the database password or `DB_SECRET_ARN`. With `DB_SECRET_ARN` set, the API reads the database credentials from the team's Secrets Manager secret at startup using the instance profile from `iam.tf` (conflict #4, decided 2026-11-19). Migrations and seeds still use the `RDS_*` values |
 | `infra/README.md` guidance | It says the backend should read the database secret at startup. The API supports both: `DB_SECRET_ARN` (recommended on EC2) or the `DB_*` values from `.env` (local and `./scripts/dev.sh rds`) |
-| JWT secret and Google key | `.env` |
+| JWT secret | `.env` (Open Library needs no key) |
 | HTTPS | None. Plain HTTP on port 80, `COOKIE_SECURE=false` |
 | Same-site cookies, CORS | The browser only talks to the Next.js container, which forwards `/api/*` to the API over the Compose network. No CORS, no cross-site cookie question |
 | Rate limiting | None |
@@ -171,7 +171,7 @@ On the instance, over Session Manager
 1. `git clone` the repository and `git checkout sunny` (or the merged branch).
 2. Create `.env` from `.env.example`: fill in the `RDS_*` values (host from
    `terragrunt output -raw db_address` in `infra/live/dev/data`; database, user, and password from the
-   Secrets Manager secret, §1.1), a random `JWT_SECRET`, and the Google key.
+   Secrets Manager secret, §1.1) and a random `JWT_SECRET` (Open Library needs no key).
    Run `chmod 600 .env`.
 3. `./scripts/dev.sh rds` (migrations, seeds, API), then
    `docker compose -f docker-compose-rdbs.yml up -d --build web`.
@@ -185,7 +185,7 @@ seconds.
 - [ ] `/readyz` returns 200.
 - [ ] RDS rejects connections from anywhere except the instance's security
       group.
-- [ ] Register, log in, Google search, import, shelve, progress, review, and
+- [ ] Register, log in, Open Library search, import, shelve, progress, review, and
       every report work on the public address.
 - [ ] The session cookie is `HttpOnly` and `SameSite=Lax` (not `Secure`, since
       this is plain HTTP).
@@ -206,7 +206,7 @@ seconds.
 
 ## 5. Post-MVP — S3 (only if time allows)
 
-Today nothing uses S3: covers are Google Books or `picsum.photos` URLs in
+Today nothing uses S3: covers are covers.openlibrary.org or `picsum.photos` URLs in
 `books.cover_url`, and `users.avatar_url` is a plain URL. The MVP does not need
 S3.
 
@@ -216,7 +216,7 @@ S3.
 | --- | --- | --- |
 | User avatars | Yes | Users can upload a picture instead of pasting a URL |
 | Covers for user-created books (`source = 'user'`) | Yes | Hand-added books often have no cover URL |
-| Copies of Google Books covers | **No** | Storing Google content permanently conflicts with Google's API terms (see `BACKEND_PLAN.md` §8); keep hotlinking with attribution |
+| Copies of Open Library covers | **No** | Open Library asks sites to link its covers rather than copy or crawl them; keep linking |
 
 ### 5.2 Design
 

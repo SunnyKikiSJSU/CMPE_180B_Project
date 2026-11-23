@@ -13,7 +13,7 @@ uses explicit SQL so that schema design, joins, transactions, functions,
 triggers, indexes, and query plans remain visible and demonstrable.
 
 S3 is beyond the database MVP. The MVP stores catalog metadata and image URLs in
-PostgreSQL; imported Google books use Google Books cover URLs. S3-backed cover,
+PostgreSQL; imported Open Library books link to covers.openlibrary.org. S3-backed cover,
 avatar, or file uploads are a post-MVP extension.
 
 ## Architecture
@@ -36,24 +36,24 @@ flowchart LR
         DB[(PostgreSQL 18)]
     end
 
-    Google["Google Books API<br/>(external)"]
+    OpenLibrary["Open Library API<br/>(external)"]
 
     Browser --> Web
     Web -->|"HTTP/JSON<br/>OpenAPI contract"| API
     API -->|"explicit SQL"| DB
-    API -.->|"server-side search<br/>and import only"| Google
+    API -.->|"server-side search<br/>and import only"| OpenLibrary
 ```
 
 - **Presentation tier:** The Next.js frontend renders the interface and calls
   the backend over HTTP/REST.
 - **Application tier:** The Go API validates requests, applies business rules,
   manages transaction boundaries, and executes explicit SQL. It also calls
-  Google Books on the server for discovery and import.
+  Open Library on the server for discovery and import.
 - **Data tier:** PostgreSQL stores users, catalog data, shelves, reading
   activity, ratings, reviews, and derived summaries.
 
-The browser never connects directly to PostgreSQL or Google and never receives
-database credentials or the Google API key. Every data operation goes through a
+The browser never connects directly to PostgreSQL or Open Library and never
+receives database credentials. Every data operation goes through a
 validated API endpoint, and PostgreSQL remains the source of truth.
 
 The deployed database uses PostgreSQL 18 on Amazon RDS, and the Terraform
@@ -75,7 +75,7 @@ scaffold defaults to the same engine and version.
 | Authentication | JWT and bcrypt | Access control and password hashing |
 | Database | PostgreSQL 18 | Primary relational data store |
 | Cloud database | Amazon RDS for PostgreSQL 18 | Managed production database |
-| Book discovery | Google Books API (server-side) | Live search; results imported on first use |
+| Book discovery | Open Library API (server-side) | Live search; a result is imported when a user adds it |
 | Library search | PostgreSQL `tsvector`, `pg_trgm`, and GIN indexes | Full-text and fuzzy search over stored books |
 | Optional search | `pgvector` | Semantic similarity search, if added later |
 | Object storage | Amazon S3 (post-MVP) | Self-hosted covers and future uploads |
@@ -149,29 +149,34 @@ The implementation must demonstrate:
 The API must use explicit SQL rather than hiding database behavior behind a
 high-level ORM.
 
-## Book Search and Google Books
+## Book Search and Open Library
 
-Users find books through the Google Books API. The Go API calls Google on the
-server, so the API key never reaches the browser, and a search stores nothing.
-When a user shelves, rates, reviews, or starts reading a result, the API
-imports that one volume into `books` (`POST /api/books/import`). From then on
-it is an ordinary local book with a `book_id` UUID, and every other feature
-reads PostgreSQL only.
+Users find books through the Open Library search API. The Go API calls Open
+Library on the server, and a search stores nothing. A user imports a result
+(`POST /api/books/import`) before shelving, rating, reviewing, or tracking it.
+From then on it is an ordinary local book with a `book_id` UUID, and every
+other feature reads PostgreSQL only.
 
 | Search | Endpoint | Data |
 | --- | --- | --- |
-| Google Books (discovery) | `GET /api/external/books` | Live Google results, not stored |
+| Open Library (discovery) | `GET /api/external/books` | Live results, one per work, not stored |
 | Library | `GET /api/books` | Books already in PostgreSQL: seed, imported, and user-created |
 
-- `books.google_books_id` holds the Google volume ID for deduplication; it is
-  never a key. `books.source` is `seed`, `google`, or `user`.
-- Google content is shown with Google attribution and a link to Google Books.
-- Google's own ratings are never stored; ratings and summaries come from this
-  site's users.
-- The 200 synthetic seed books stay for reports and evidence. No Google data
-  is committed to this repository.
-- If Google is down or out of quota, library search, shelves, progress,
+- One local book per Open Library *work* (all editions of a title).
+  `books.openlibrary_id` holds the work ID (for example `OL893414W`) for
+  deduplication; it is never a key. A work whose ISBN-13 matches a book
+  already in the library is that book. `books.source` is `seed`,
+  `openlibrary`, `user`, or the reserved `google`.
+- Open Library's catalog data is openly reusable, so imported works keep
+  their description and metadata. Covers stay links to covers.openlibrary.org,
+  and each imported book links back to Open Library (`infoLink`).
+- The 200 synthetic seed books stay for reports and evidence. No Open Library
+  data is committed to this repository.
+- If Open Library is down or slow, library search, shelves, progress,
   reviews, and reports keep working.
+
+Google Books was the first design; it was replaced because its terms restrict
+storing its content (`conflict.md`, "Not open").
 
 Details: `BACKEND_PLAN.md` sections 2 (item 11), 4.4, and 6.4.
 
@@ -251,7 +256,7 @@ Browser --HTTP :80--> EC2 instance (Docker Compose: web + api) --> RDS PostgreSQ
   Only the instance's security group is allowed to connect to it.
 - One EC2 instance runs the Next.js (`web`) and Go (`api`) containers. Only
   `web` is exposed; it forwards `/api/*` to the API over the Compose network.
-- Application secrets (database password, `JWT_SECRET`, Google key) live in a
+- Application secrets (database password, `JWT_SECRET`) live in a
   gitignored `.env` file. The deployed API can instead read the database
   credentials at startup from the Secrets Manager secret the team's Terraform
   creates (`DB_SECRET_ARN`, using the instance role). There is no load balancer
@@ -264,7 +269,7 @@ Browser --HTTP :80--> EC2 instance (Docker Compose: web + api) --> RDS PostgreSQ
 1. Create the Docker Compose development environment.
 2. Add PostgreSQL migrations and reproducible seed data.
 3. Implement Go authentication and database connectivity.
-4. Add catalog, author, category, library search, and Google Books search and
+4. Add catalog, author, category, library search, and Open Library search and
    import.
 5. Add shelves, progress, and history with transactions.
 6. Add ratings, reviews, triggers, and rating-summary maintenance.
@@ -286,9 +291,9 @@ storage.
 - [x] PostgreSQL Docker Compose environment and `.env.example`.
 - [x] API service in Compose (minimal Go server with `/healthz` and `/readyz`).
 - [ ] Web service in Compose (needs `frontend/Dockerfile`).
-- [x] Database schema, migrations (`000001`-`000007`), and seed data.
-- [x] API contract (`docs/api/openapi.yaml`), including Google Books search and import.
-- [x] Go API and authentication: auth, catalog, shelves and progress, reviews and ratings, and reports (Google Books search and import still return `501`).
+- [x] Database schema, migrations (`000001`-`000008`), and seed data.
+- [x] API contract (`docs/api/openapi.yaml`), including Open Library search and import.
+- [x] Go API and authentication: auth, catalog, Open Library search and import, shelves and progress, reviews and ratings, and reports.
 - [ ] Next.js application.
 - [ ] Validation, concurrency, and performance evidence (transaction and concurrency evidence and the query catalog are done; validation and performance are not).
 - [ ] AWS deployment.

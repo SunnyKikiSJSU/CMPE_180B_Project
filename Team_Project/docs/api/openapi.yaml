@@ -7,13 +7,13 @@ info:
     truth; all access goes through this API. List endpoints return JSON arrays
     and expose pagination through X-Total-Count, X-Page, and X-Page-Size.
 
-    Book discovery uses the Google Books API through this server
-    (GET /api/external/books); the browser never calls Google and never sees
-    the API key. Google results are not stored. A result becomes a local
-    catalog book only when a user imports it (POST /api/books/import), which
-    happens before the user shelves, rates, reviews, or tracks it. Every
-    user-activity endpoint takes the local bookId UUID, never a Google ID.
-    Content from Google must be shown with Google attribution and infoLink.
+    Book discovery uses the Open Library search API through this server
+    (GET /api/external/books); search results are not stored. A result
+    becomes a local catalog book only when a user imports it
+    (POST /api/books/import), which happens before the user shelves, rates,
+    reviews, or tracks it. Every user-activity endpoint takes the local bookId
+    UUID, never an Open Library ID. Link imported books and search results to
+    Open Library (infoLink).
 
     Authentication uses the bm_session HttpOnly cookie or an
     Authorization: Bearer <jwt> header. Personal endpoints are scoped to the
@@ -322,7 +322,7 @@ paths:
       summary: Search and browse the local library
       description: |
         Library search over books already in PostgreSQL: seed books, imported
-        Google books, and user-created books. Use GET /api/external/books to
+        Open Library books, and user-created books. Use GET /api/external/books to
         find books that are not in the library yet.
 
         Search matches title, description, author names, and category names.
@@ -367,9 +367,9 @@ paths:
       operationId: createBook
       summary: Add a catalog record by hand
       description: |
-        Creates a book with source "user". To add a Google Books volume, use
-        POST /api/books/import instead; this endpoint does not accept a Google
-        volume ID.
+        Creates a book with source "user". To add an Open Library work, use
+        POST /api/books/import instead; this endpoint does not accept an
+        outside ID.
       security:
         - cookieAuth: []
         - bearerAuth: []
@@ -396,22 +396,20 @@ paths:
   /api/external/books:
     get:
       tags: [Catalog]
-      operationId: searchGoogleBooks
-      summary: Search Google Books
+      operationId: searchExternalBooks
+      summary: Search Open Library
       description: |
-        Calls the Google Books volumes search from the server and returns
-        normalized results. Nothing is written to the database. Each result
-        carries bookId when the volume (or a book with the same ISBN-13) is
-        already in the library; otherwise import it before acting on it.
+        Calls the Open Library search API from the server and returns
+        normalized works (one result per work, covering all its editions).
+        Nothing is written to the database. Each result carries bookId when
+        the work, or a book with one of its ISBN-13s, is already in the
+        library; otherwise import it before acting on it.
 
-        At least one of q, title, author, category, or isbn is required.
-        title, author, category, and isbn map to Google's intitle:, inauthor:,
-        subject:, and isbn: operators. X-Total-Count is Google's totalItems,
-        which is an estimate and can change between pages. pageSize is capped
-        at 40 by Google.
-
-        Results contain Google content: show "Powered by Google" attribution
-        and link each result to its infoLink.
+        At least one of q, title, author, category, or isbn is required; they
+        map to Open Library's q, title, author, subject, and isbn parameters.
+        X-Total-Count is Open Library's numFound. Results have no description
+        (import adds it). Covers are links to covers.openlibrary.org; show a
+        link to Open Library (infoLink) with the results.
       parameters:
         - name: q
           in: query
@@ -431,7 +429,7 @@ paths:
             maxLength: 200
         - name: category
           in: query
-          description: Google subject, for example Fantasy.
+          description: Open Library subject, for example Fantasy.
           schema:
             type: string
             maxLength: 100
@@ -447,7 +445,13 @@ paths:
             type: string
             enum: [relevance, newest]
             default: relevance
-        - $ref: "#/components/parameters/Page"
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 1
         - name: pageSize
           in: query
           schema:
@@ -466,16 +470,20 @@ paths:
   /api/books/import:
     post:
       tags: [Catalog]
-      operationId: importGoogleBook
-      summary: Add a Google Books volume to the library
+      operationId: importExternalBook
+      summary: Add an Open Library work to the library
       description: |
-        Fetches the volume from Google by ID, normalizes it, and stores it as a
-        local book with source "google". Client-supplied metadata is never
-        trusted; only the volume ID is read from the body.
+        Reads the work from Open Library by ID, normalizes it, and stores it
+        as a local book with source "openlibrary" (title, authors, up to five
+        categories, description, first publication year, page count, one
+        ISBN-13 and publisher from a representative edition, and a cover
+        link). Client-supplied metadata is never trusted; only the work ID is
+        read from the body. A work merged into another ID is followed.
 
-        Idempotent: if the volume, or another book with the same ISBN-13, is
+        Idempotent: if the work, or a book with one of its ISBN-13s, is
         already in the library, that book is returned with 200 and nothing is
-        written. Google's own ratings are never stored.
+        written. Two concurrent imports of one work return the same book.
+        Imported books cannot be edited (PATCH /api/books/{bookId} is 403).
       security:
         - cookieAuth: []
         - bearerAuth: []
@@ -493,7 +501,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Book"
         "201":
-          description: The volume was imported.
+          description: The work was imported.
           content:
             application/json:
               schema:
@@ -529,8 +537,8 @@ paths:
       operationId: updateBook
       summary: Correct catalog metadata
       description: |
-        Seed and user-created books only. Books with source "google" return
-        403 because their content comes from Google and carries attribution.
+        Seed and user-created books only. Imported books (source
+        "openlibrary" or "google") return 403: they mirror an outside catalog.
       security:
         - cookieAuth: []
         - bearerAuth: []
@@ -1593,13 +1601,13 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
     UpstreamUnavailable:
-      description: Google Books failed, timed out, is over its quota, or returned an unusable response (UPSTREAM_UNAVAILABLE). Library search still works.
+      description: Open Library failed, timed out, is rate limiting, or returned an unusable response (UPSTREAM_UNAVAILABLE). Library search still works.
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
     ExternalBookList:
-      description: One page of Google Books results.
+      description: One page of Open Library results.
       content:
         application/json:
           schema:
@@ -1608,7 +1616,7 @@ components:
               $ref: "#/components/schemas/ExternalBook"
       headers:
         X-Total-Count:
-          description: Google's estimated total; it can change between pages.
+          description: Open Library's numFound; it can change between pages.
           schema:
             type: integer
         X-Page:
@@ -1842,10 +1850,12 @@ components:
 
     BookSource:
       type: string
-      enum: [seed, google, user]
+      enum: [seed, openlibrary, google, user]
       description: |
-        seed: synthetic demonstration data. google: imported from Google Books
-        and shown with Google attribution. user: added by hand.
+        seed: synthetic demonstration data. openlibrary: imported from Open
+        Library and linked to it (infoLink). google: reserved for a later
+        Google Books source; no route creates it. user: added by hand.
+        Imported books (openlibrary, google) cannot be edited.
     Book:
       type: object
       required: [id, title, author, authors, categories, source]
@@ -1859,7 +1869,7 @@ components:
           type: string
           description: |
             Primary author name retained for frontend compatibility.
-            "Unknown author" when the book has no authors (some Google volumes).
+            "Unknown author" when the book has no authors (some imported works).
         authors:
           type: array
           items:
@@ -1874,7 +1884,7 @@ components:
           type: string
           format: uri
           nullable: true
-          description: Google Books page for source "google"; null otherwise.
+          description: The book's page in its outside catalog (openlibrary.org for source "openlibrary"); null otherwise.
         description:
           type: string
           nullable: true
@@ -1951,25 +1961,35 @@ components:
           format: uri
     ImportBookRequest:
       type: object
-      required: [googleBooksId]
+      required: [externalId]
       additionalProperties: false
       properties:
-        googleBooksId:
+        source:
           type: string
-          pattern: "^[A-Za-z0-9_-]{1,64}$"
-          example: zyTCAlFPjgYC
+          enum: [openlibrary]
+          default: openlibrary
+        externalId:
+          type: string
+          pattern: "^OL[0-9]+W$"
+          example: OL893414W
     ExternalBook:
       type: object
-      description: A normalized Google Books volume. Not stored by this response.
-      required: [googleBooksId, title, authors, categories, infoLink, source]
+      description: A normalized Open Library work. Not stored by this response.
+      required: [source, externalId, title, authors, categories, infoLink]
       properties:
-        googleBooksId:
+        source:
           type: string
+          enum: [openlibrary]
+        externalId:
+          type: string
+          pattern: "^OL[0-9]+W$"
+          description: Open Library work ID; send it to POST /api/books/import.
+          example: OL893414W
         bookId:
           type: string
           format: uuid
           nullable: true
-          description: Local book ID when the volume is already in the library.
+          description: Local book ID when the work (or one of its ISBN-13s) is already in the library.
         title:
           type: string
         subtitle:
@@ -1979,43 +1999,46 @@ components:
           type: array
           items:
             type: string
-          description: Empty when Google lists no authors.
+          description: Empty when Open Library lists no authors.
         categories:
           type: array
           items:
             type: string
-          description: Last segment of each Google category path, deduplicated.
+          description: |
+            Up to five genre-like subjects. Catalog headings ("Fiction,
+            science fiction, general"), list tags, reading levels, and library
+            tags are dropped.
         description:
           type: string
           nullable: true
-          description: Plain text; Google's HTML is stripped by the server.
+          description: Always null in search results; the imported book has it.
         publishedDate:
           type: string
           nullable: true
-          description: As given by Google, for example 2004, 2004-05, or 2004-05-12.
+          description: First publication year, for example 1965.
         publisher:
           type: string
           nullable: true
+          description: Publisher of the representative edition.
         pageCount:
           type: integer
           minimum: 1
           nullable: true
+          description: Median page count across editions.
         isbn13:
           type: string
           pattern: "^[0-9]{13}$"
           nullable: true
-          description: Taken from Google's ISBN_13 identifier only; null when Google lists none.
+          description: ISBN-13 of the representative edition (ISBN-10s are converted).
         coverUrl:
           type: string
           format: uri
           nullable: true
-          description: Always https.
+          description: https://covers.openlibrary.org link; never copied.
         infoLink:
           type: string
           format: uri
-        source:
-          type: string
-          enum: [google]
+          description: The work's page on openlibrary.org.
     BookUpdate:
       type: object
       properties:
@@ -2059,7 +2082,7 @@ components:
           minimum: 0
           description: |
             books.page_count, or 0 when the page count is unknown (common for
-            imported Google volumes). With 0, clients edit percentComplete.
+            imported works). With 0, clients edit percentComplete.
         percentComplete:
           type: number
           minimum: 0

@@ -90,21 +90,18 @@ name, user, and password are in the Secrets Manager secret
 [`AWS_PLAN.md`](AWS_PLAN.md) §1.1). The Terraform defaults
 are database `appdb` and user `appadmin`.
 
-### Google Books values (both modes)
+### Open Library values (both modes)
 
-Book search calls the Google Books API from the API server. These are
-optional for local work:
+Outside book search and import call Open Library (openlibrary.org) from the
+API server. No API key is needed. Both values are optional:
 
 ```dotenv
-GOOGLE_BOOKS_API_KEY=your-google-books-api-key
-GOOGLE_BOOKS_COUNTRY=US
+# Open Library asks frequent API users to identify the app and a contact.
+OPENLIBRARY_USER_AGENT=BookMetaversePortal/1.0 (team-contact@example.com)
+OPENLIBRARY_URL=https://openlibrary.org
 ```
 
-Without a key, Google allows only a small anonymous quota. To create a key,
-enable the Books API in a Google Cloud project, create an API key, and restrict
-it to the Books API. Keep it in `.env` only; it must never go into a
-`NEXT_PUBLIC_*` variable or the frontend. Automated tests use a fake Google
-server and need no key.
+Automated tests use a fake Open Library server and never call the real one.
 
 The RDS security group must allow TCP port `5432` from either:
 

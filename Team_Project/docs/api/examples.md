@@ -26,40 +26,43 @@ For a non-browser client, use the returned `accessToken`:
 curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/auth/me
 ```
 
-## Search Google Books
+## Search Open Library
 
-The server calls Google; nothing is stored.
+The server calls Open Library; nothing is stored.
 
 ```bash
-curl 'http://localhost:8080/api/external/books?q=night+circus&page=1&pageSize=20'
-curl 'http://localhost:8080/api/external/books?author=Morgenstern&sort=newest'
-curl 'http://localhost:8080/api/external/books?isbn=9780385534635'
+curl 'http://localhost:8080/api/external/books?q=dune&page=1&pageSize=20'
+curl 'http://localhost:8080/api/external/books?title=dune&author=herbert&sort=newest'
+curl 'http://localhost:8080/api/external/books?isbn=9780441013593'
 ```
 
-Each result has `googleBooksId`, `infoLink`, and `bookId`. `bookId` is set
-when the book is already in the library:
+Each result has `externalId`, `infoLink`, and `bookId`. `bookId` is set when
+the work, or a book with one of its ISBN-13s, is already in the library:
 
 ```json
 [
   {
-    "googleBooksId": "zyTCAlFPjgYC",
+    "source": "openlibrary",
+    "externalId": "OL893414W",
     "bookId": null,
-    "title": "The Night Circus",
-    "authors": ["Erin Morgenstern"],
-    "categories": ["Fantasy"],
-    "publishedDate": "2011-09-13",
-    "pageCount": 387,
-    "isbn13": "9780385534635",
-    "coverUrl": "https://books.google.com/books/content?id=...",
-    "infoLink": "https://books.google.com/books?id=zyTCAlFPjgYC",
-    "source": "google"
+    "title": "Dune",
+    "subtitle": null,
+    "authors": ["Frank Herbert"],
+    "categories": ["Fiction", "Science fiction", "American literature", "American Science fiction", "Ecology"],
+    "description": null,
+    "publishedDate": "1965",
+    "publisher": "Berkley",
+    "pageCount": 604,
+    "isbn13": "9780425038918",
+    "coverUrl": "https://covers.openlibrary.org/b/id/11481354-M.jpg",
+    "infoLink": "https://openlibrary.org/works/OL893414W"
   }
 ]
 ```
 
-The ID and URLs above are illustrative.
+Recorded from Open Library on 2026-11-23; its data changes over time.
 
-## Import a Google result before acting on it
+## Import a result before acting on it
 
 Shelves, progress, ratings, and reviews take the local `bookId`. When a result
 has `bookId: null`, import it first:
@@ -67,13 +70,14 @@ has `bookId: null`, import it first:
 ```bash
 curl -b cookies.txt \
   -H 'Content-Type: application/json' \
-  -d '{"googleBooksId":"zyTCAlFPjgYC"}' \
+  -d '{"externalId":"OL893414W"}' \
   http://localhost:8080/api/books/import
 ```
 
 `201` means the book was imported; `200` means it was already in the library.
-Both return a `Book` with `source: "google"`. Use its `id` in the shelf,
-progress, rating, and review calls below.
+Both return a `Book` with `source: "openlibrary"`, its description, and
+`infoLink`. Use its `id` in the shelf, progress, rating, and review calls
+below.
 
 ## Search the local library
 
