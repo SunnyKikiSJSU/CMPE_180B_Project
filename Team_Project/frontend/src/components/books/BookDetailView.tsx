@@ -4,14 +4,14 @@ import Link from "next/link";
 
 import { CoverImage } from "@/components/books/CoverImage";
 import { OpenLibraryLink } from "@/components/books/OpenLibraryLink";
+import { ReadingPanel } from "@/components/books/ReadingPanel";
+import { ReviewSection } from "@/components/books/ReviewSection";
 import { ErrorState } from "@/components/ErrorState";
 import { useBook } from "@/hooks/use-books";
 import { catalogHref } from "@/lib/catalog-params";
 import { isApiError } from "@/lib/errors";
 import { formatPublishedDate, formatRating } from "@/lib/format";
-import type { Book, ReadingStatus } from "@/types/domain";
-
-const statusLabels: Record<ReadingStatus, string> = { want_to_read: "Want to read", reading: "Reading", completed: "Finished", paused: "Paused" };
+import type { Book } from "@/types/domain";
 
 /** /books/[bookId]: catalog details, rating summary, and the reader's own progress and rating. */
 export function BookDetailView({ bookId }: { bookId: string }) {
@@ -47,7 +47,6 @@ function BookDetail({ book }: { book: Book }) {
     ["Pages", book.pageCount ? String(book.pageCount) : ""],
     ["ISBN-13", book.isbn13 ?? ""],
   ].filter((fact): fact is [string, string] => Boolean(fact[1]));
-  const progress = book.myProgress;
   return (
     <article className="book-detail">
       <Link className="text-link back-link" href="/catalog?tab=library">← Catalog</Link>
@@ -78,19 +77,9 @@ function BookDetail({ book }: { book: Book }) {
           )}
           {book.source === "openlibrary" && <p className="book-detail-source">Book information from Open Library. <OpenLibraryLink href={book.infoLink} /></p>}
         </div>
-        <aside className="panel book-detail-activity" aria-label="Your reading">
-          <p className="eyebrow">Your reading</p>
-          {progress ? (
-            <>
-              <h2>{statusLabels[progress.status]}</h2>
-              <p>{progress.totalPages > 0 ? `Page ${progress.currentPage} of ${progress.totalPages}` : `${Math.round(progress.percentComplete ?? 0)}% read`}</p>
-            </>
-          ) : (
-            <h2>Not on your shelves yet</h2>
-          )}
-          <p>{book.myRating ? `You rated it ${book.myRating} of 5.` : "You have not rated it."}</p>
-        </aside>
+        <ReadingPanel book={book} />
       </div>
+      <ReviewSection book={book} />
     </article>
   );
 }

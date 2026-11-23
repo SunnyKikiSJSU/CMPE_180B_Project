@@ -1,5 +1,5 @@
 import { apiClient, apiClientPage, query } from "@/lib/api-client";
-import type { Author, Book, Category, ExternalBook, Rating, Review } from "@/types/domain";
+import type { Author, Book, Category, ExternalBook } from "@/types/domain";
 
 export type LibrarySort = "relevance" | "newest" | "rating" | "title" | "popular";
 export type ExternalSort = "relevance" | "newest";
@@ -37,6 +37,4 @@ export const bookService = {
   getById: (bookId: string, signal?: AbortSignal) => apiClient<Book>(`/api/books/${encodeURIComponent(bookId)}`, { signal }),
   listAuthors: (filters: NameSearch = {}) => apiClientPage<Author>(`/api/authors${query(filters)}`),
   listCategories: (filters: NameSearch = {}) => apiClientPage<Category>(`/api/categories${query(filters)}`),
-  getReviews: (bookId: string) => apiClient<Review[]>(`/api/books/${encodeURIComponent(bookId)}/reviews`),
-  rate: (bookId: string, value: number) => apiClient<Rating>(`/api/books/${encodeURIComponent(bookId)}/ratings`, { method: "POST", body: { value } }),
 };
