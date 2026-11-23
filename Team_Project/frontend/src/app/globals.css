@@ -265,3 +265,16 @@ body {
   .login-art h2 { font-size: 34px; }
   .public-nav { height: 70px; padding: 0 16px; }.public-nav-links { display: none; }.public-nav .public-brand { margin-left: 12px; font-size: 19px; }.public-nav .public-login { margin-left: auto; }.public-home-hero { display: block; padding: 55px 20px 80px; }.public-hero-copy h1 { font-size: 62px; }.public-home-hero > .relative { margin-top: 60px; }.public-discover { padding: 65px 20px; }.public-section-heading { align-items: flex-start; flex-direction: column; }.mood-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.public-footer { align-items: flex-start; flex-direction: column; padding: 25px 20px; }.explore-heading { align-items: flex-start; flex-direction: column; padding: 45px 20px 25px; }.explore-card { margin: 0 16px 50px; padding: 16px; }
 }
+
+/* Auth forms: field errors, form-level alert, and the switch link. */
+.login-panel input[aria-invalid="true"] { border-color: #b4533c; }
+.field-error { color: #b4533c; font-size: 11px; font-weight: 600; }
+.form-alert { border: 1px solid #e6c3b6; border-radius: 8px; background: #fbefe9; padding: 11px 13px; color: #8a3b27; font-size: 12px; line-height: 1.5; }
+.form-alert small { display: block; margin-top: 4px; color: #a8705e; font-size: 10px; }
+.login-panel form .button:disabled { cursor: progress; opacity: .65; }
+.login-switch { margin-top: 22px; color: #81796f; font-size: 12px; }
+.login-switch a { color: #263238; font-weight: 800; text-decoration: underline; text-underline-offset: 3px; }
+.header-search { margin: 0; }
+.header-logout { border: 1px solid #ddd5c9 !important; border-radius: 8px; padding: 6px 10px; font-size: 11px !important; font-weight: 800; cursor: pointer; }
+.header-logout:hover { background: #fffdf8 !important; color: #263238 !important; }
+.auth-error-card .button { border: 0; cursor: pointer; }
