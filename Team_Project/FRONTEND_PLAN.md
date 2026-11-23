@@ -618,13 +618,13 @@ Checks before a demo: `npm run lint`, `npm run typecheck`, `npm test`,
 - [x] 11 routes and shared layout
 - [x] Visual system in `globals.css`; responsive public drawer
 - [x] `npx tsc --noEmit` and `npm run lint` pass (2026-11-12)
-- [ ] Add `typecheck` script
-- [ ] Add Vitest (and optionally Playwright)
-- [ ] Delete unused `Navbar`, `HeroSection`, `Footer`, `ShelvesSection`,
+- [x] Add `typecheck` script
+- [x] Add Vitest (and optionally Playwright)
+- [x] Delete unused `Navbar`, `HeroSection`, `Footer`, `ShelvesSection`,
       `DiscoverySection` (or adopt them intentionally)
 - [ ] Remove `mock-data.ts` from runtime; keep only as a test fixture if useful
 - [ ] Add `next.config.ts` `images.remotePatterns` if `next/image` is adopted
-- [ ] Refresh `frontend/README.md` (currently says the UI is a "starter")
+- [x] Refresh `frontend/README.md` (currently says the UI is a "starter")
 
 **Exit:** tooling scripts exist; no dead runtime mock import.
 
@@ -632,15 +632,15 @@ Checks before a demo: `npm run lint`, `npm run typecheck`, `npm test`,
 
 - [x] Base `api-client` (relative `/api` URLs, JSON) and the `next.config.ts` rewrite
 - [x] 8 initial service methods
-- [~] Baseline domain types
-- [ ] `ApiError` + `ErrorEnvelope` parsing; `requestId` surfaced
-- [ ] `204` / empty-body responses return `undefined`
-- [ ] `apiClientPage` reading pagination headers
-- [ ] Expand `Book`, `Shelf`, `ReadingProgress`, `Review`, `Rating`,
+- [x] Baseline domain types
+- [x] `ApiError` + `ErrorEnvelope` parsing; `requestId` surfaced
+- [x] `204` / empty-body responses return `undefined`
+- [x] `apiClientPage` reading pagination headers
+- [x] Expand `Book`, `Shelf`, `ReadingProgress`, `Review`, `Rating`,
       `Author`, `Category`; add `ExternalBook`, `User`, `UserProfile`,
       `UserStats`, `ReadingHistoryEvent`, report types
-- [ ] `query-keys.ts`, `format.ts`, `errors.ts`
-- [ ] Unit tests for `api-client`
+- [x] `query-keys.ts`, `format.ts`, `errors.ts`
+- [x] Unit tests for `api-client`
 
 **Exit:** every OpenAPI schema used by the UI has a TypeScript type; compile and
 client tests pass.
@@ -649,15 +649,37 @@ client tests pass.
 
 - [x] Login page visual shell
 - [x] `AuthBoundary` guard shell
-- [ ] `QueryProvider` in the root layout
-- [ ] `auth-service.ts` (register/login/logout/me)
-- [ ] Login page: RHF + Zod, API errors, `returnTo`
-- [ ] `/register` page
-- [ ] `AuthBoundary` via `["auth","me"]`; remove `localStorage`
-- [ ] `AppShell` profile, logout, active nav, header search
-- [ ] 401 handling through the `QueryCache` `onError` handler
+- [x] `QueryProvider` in the root layout
+- [x] `auth-service.ts` (register/login/logout/me)
+- [x] Login page: RHF + Zod, API errors, `returnTo`
+- [x] `/register` page
+- [x] `AuthBoundary` via `["auth","me"]`; remove `localStorage`
+- [x] `AppShell` profile, logout, active nav, header search
+- [x] 401 handling through the `QueryCache` `onError` handler
 
 **Exit:** demo login works against the Go API; no `localStorage` session.
+
+Done 2026-11-23 together with F0 and F1 (branch `feat/frontend-auth-f1`).
+Checked in a browser against the Go API and PostgreSQL with seeds: signed-out
+redirect with `returnTo`, field and API errors (wrong password, used email),
+sign-in and registration, the session surviving a reload, the HttpOnly cookie
+invisible to scripts, sign-out, `returnTo` rejecting other sites, and the retry
+card while the API is down. Notes:
+
+- `returnTo` accepts same-site paths only (`safeReturnTo`), so a crafted link
+  cannot send a user to another site after signing in.
+- Passwords are checked as 8 characters to **72 bytes**, the API's bcrypt
+  limit, so long accented or emoji passwords fail on the form, not the server.
+- `package-lock.json` was out of sync with `package.json` (`npm ci` failed);
+  it was regenerated with `npm install`. Docker builds need `npm ci` to work.
+- The unused notifications button in the header was replaced by **Sign out**.
+- `BookInput` has no `isbn13` in the contract, although the API accepts it; the
+  type follows the contract.
+- **Follow-up before deployment:** `npm audit` reports advisories in Next.js
+  15.5.28 and its bundled PostCSS (GHSA-pc58-hwjq-p385 concerns self-hosted apps
+  that forward responses, close to how the `/api` proxy works). The latest
+  15.x backport (15.5.29) is still affected; the fix is Next.js 16, a major
+  upgrade for its own PR (Phase F8).
 
 ### Phase F3 — Catalog and Google Books
 
