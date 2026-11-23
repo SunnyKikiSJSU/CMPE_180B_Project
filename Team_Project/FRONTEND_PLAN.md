@@ -689,23 +689,52 @@ card while the API is down. Notes:
 
 - [x] Catalog route shell, filter bar, empty state
 - [x] Public explore shell
-- [ ] `searchGoogle` service + external query hook
-- [ ] `importGoogleBook` + `ensureLocalBook`
-- [ ] Two-tab catalog (Google default, Library)
-- [ ] Google result cards with attribution + `infoLink`
-- [ ] Library search with `q`, `authorId`, `categoryId`, `sort`, pagination
-- [ ] Upstream error fallback ("Search the library instead")
-- [ ] Public explore search + login gate on actions
-- [ ] `Pagination`, `BookCard`, `BookGrid`, `CoverImage`
+- [x] `searchGoogle` service + external query hook (`bookService.searchExternal`, `useExternalSearch`)
+- [x] `importGoogleBook` + `ensureLocalBook` (`bookService.importExternal`, `lib/ensure-local-book.ts`)
+- [x] Two-tab catalog (Open Library default, Library)
+- [x] Open Library result cards with an `infoLink` attribution link
+- [x] Library search with `q`, `authorId`, `categoryId`, `sort`, pagination
+- [x] Upstream error fallback ("Search the library instead")
+- [x] Public explore search + login gate on actions
+- [x] `Pagination`, `BookCard`, `BookGrid`, `CoverImage`
 
 **Exit:** a Google result can be found, imported idempotently, and shelved; the
 library tab finds the imported book.
 
+Done 2026-11-23 (branch `feat/frontend-catalog`) except "shelved": the shelf
+picker is on the book detail page, which is F4. Checked in a browser against
+the Go API, PostgreSQL with seeds, and live Open Library: signed-out search on
+`/explore` with "Sign in to save" returning to the same search; import from
+`/explore` and `/catalog` (a double click sent one `POST /api/books/import`,
+201, and one row); results then showing "In the library" / "Open in library";
+the library tab finding the imported book; category, author, and sort filters,
+pagination, and back/forward; an invalid ISBN (400, no retry button); Open
+Library unreachable (502 banner and "Search the library instead"); and a
+390 px wide screen. Notes:
+
+- All catalog state is in the URL (`lib/catalog-params.ts`): `tab`, `q`,
+  `page`, `sort`, plus `authorId`/`categoryId` (library) or
+  `title`/`author`/`subject`/`isbn` (Open Library). Links can be shared and the
+  back button works.
+- The header search opens the **library** tab (fast, local); an empty library
+  result offers "Search Open Library for ...". `/catalog` with no parameters
+  opens the Open Library tab with search suggestions.
+- Open Library needs at least one term, so the tab shows a prompt until the
+  user searches. Its total is an estimate ("About N results"), and paging stops
+  at page 100, the API's limit.
+- `ensureLocalBook` shares one import per work for concurrent and repeated
+  clicks and forgets a failed one so it can be retried.
+- The `/explore` mood cards map to Open Library subjects (hopeful: hope,
+  romance: romance, big ideas: philosophy, escape: fantasy).
+- `PublicNav` shows "My library" instead of "Sign in" for a signed-in reader.
+- Book cards do not prefetch their detail route; a 20-card grid would request
+  20 route payloads that are rarely used.
+
 ### Phase F4 — Book detail and activity
 
-- [ ] `/books/[bookId]` route
-- [ ] Detail fetch with authors, categories, summary, description
-- [ ] Attribution, `infoLink`, and date-by-precision rendering
+- [x] `/books/[bookId]` route
+- [x] Detail fetch with authors, categories, summary, description
+- [x] Attribution, `infoLink`, and date-by-precision rendering
 - [ ] Shelf picker (import-on-action)
 - [ ] Progress form (page + status + version)
 - [ ] Rating control (summary refresh)
@@ -715,6 +744,12 @@ library tab finds the imported book.
 
 **Exit:** every activity promised by the report/readme can be performed from the
 detail page.
+
+The read-only detail page was built with F3 so imports have somewhere to land:
+authors link to the library filtered by author, categories to the library
+filtered by category, and a "Your reading" panel shows `myProgress` and
+`myRating`. Missing and malformed IDs both show "We could not find that book"
+(the API returns 404 for both).
 
 ### Phase F5 — Shelves and progress
 

@@ -1,2 +1,8 @@
-import { SectionPage } from "@/components/SectionPage";
-export default function CatalogPage() { return <SectionPage eyebrow="Explore" title="Book catalog" description="Search one shared source of truth for books, authors, and categories." icon="⌕" emptyTitle="The catalog is ready for its first book" emptyDescription="Catalog records will appear here once the database and import service are connected." action="Import a book" href="/catalog" filters={["All categories", "All authors", "Sort by"]} />; }
+import { Suspense } from "react";
+
+import { CatalogView } from "@/components/catalog/CatalogView";
+import { LoadingState } from "@/components/LoadingState";
+
+export default function CatalogPage() {
+  return <Suspense fallback={<LoadingState />}><CatalogView /></Suspense>;
+}
