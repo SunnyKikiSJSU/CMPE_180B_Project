@@ -28,7 +28,7 @@ here, they win.
 
 | Area | Current state | Main gap |
 | --- | --- | --- |
-| Frontend | Next.js 15, React 19, TypeScript, Tailwind CSS 4 UI across 11 routes; `npm run lint` and `npx tsc --noEmit` pass | Pages use mock or empty-state data; the 8 declared service calls are not used; see `FRONTEND_PLAN.md` |
+| Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 4 UI across 11 routes; sign-in, registration, and the workspace guard use the API; `npm run lint`, `typecheck`, `test`, and `build` pass | Pages use mock or empty-state data; the 8 declared service calls are not used; see `FRONTEND_PLAN.md` |
 | Authentication | API: register, login, logout, and sessions (JWT in the `bm_session` cookie or a Bearer header) | The frontend login still writes a demo value to `localStorage` (Phase 8) |
 | Backend | Go API on `pgxpool` with chi router, middleware, auth, catalog, shelves/progress/history, reviews/ratings, and reports (`BACKEND_PLAN.md` Phases 2-7); unit, router, and integration tests | Deployment (Phase 10) |
 | Database | Migrations `000001`-`000008` with constraints, triggers, functions, search and reporting indexes, book source columns (Google, Open Library), and a locked rating-summary refresh; 69 named queries; seeds `001`-`004` (201 books, 51 users); verified on a clean PostgreSQL 18 database | Transaction and concurrency evidence for Phases 5-6 (`docs/evidence/`); no validation or performance evidence yet |

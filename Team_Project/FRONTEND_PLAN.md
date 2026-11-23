@@ -95,7 +95,7 @@ Installed but **unused**: `@tanstack/react-query`, `react-hook-form`,
 
 | Item | State |
 | --- | --- |
-| Next.js 15.5, React 19, TypeScript 5.9, Tailwind 4 | `[x]` |
+| Next.js 16.4 (Turbopack), React 19.3, TypeScript 5.9, Tailwind 4; Node.js 20.9+ | `[x]` |
 | `npm run lint` | `[x]` Passes |
 | `npx tsc --noEmit` | `[x]` Passes |
 | `typecheck` script | `[ ]` Missing from `package.json` |
@@ -614,7 +614,7 @@ Checks before a demo: `npm run lint`, `npm run typecheck`, `npm test`,
 
 ### Phase F0 — Baseline cleanup and tooling
 
-- [x] Next.js 15 App Router, React 19, TypeScript, Tailwind 4
+- [x] Next.js App Router (16.4 since 2026-11-23), React 19, TypeScript, Tailwind 4
 - [x] 11 routes and shared layout
 - [x] Visual system in `globals.css`; responsive public drawer
 - [x] `npx tsc --noEmit` and `npm run lint` pass (2026-11-12)
@@ -675,11 +675,15 @@ card while the API is down. Notes:
 - The unused notifications button in the header was replaced by **Sign out**.
 - `BookInput` has no `isbn13` in the contract, although the API accepts it; the
   type follows the contract.
-- **Follow-up before deployment:** `npm audit` reports advisories in Next.js
-  15.5.28 and its bundled PostCSS (GHSA-pc58-hwjq-p385 concerns self-hosted apps
-  that forward responses, close to how the `/api` proxy works). The latest
-  15.x backport (15.5.29) is still affected; the fix is Next.js 16, a major
-  upgrade for its own PR (Phase F8).
+- **Next.js 16 upgrade (done 2026-11-23, branch `chore/frontend-next16`):**
+  `npm audit` reported advisories in Next.js 15.5.28 and its bundled PostCSS
+  (GHSA-pc58-hwjq-p385 concerns self-hosted apps that forward responses, close
+  to how the `/api` proxy works); 15.5.29 was still affected. Now Next.js
+  16.4.6, React 19.3, `eslint-config-next` 16 (native flat config), and
+  Vitest 5 (Vitest 3 had its own advisories): `npm audit` reports 0. Builds use
+  Turbopack; Node.js 20.9+ is required, so the frontend Docker image (F8) must
+  use Node 20 or later. The F2 browser checks were repeated on 16 with the same
+  results.
 
 ### Phase F3 — Catalog and Google Books
 
