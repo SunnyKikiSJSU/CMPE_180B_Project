@@ -797,14 +797,47 @@ with the arrow keys; posting, editing, and deleting a review with its rating
 ### Phase F6 — Reviews, ratings, reports, authors, settings
 
 - [x] Page shells
-- [ ] My reviews and ratings; edit/delete
-- [ ] Reports tabs and data tables
-- [ ] Report query catalog viewer (SQL shown as text)
-- [ ] Authors/categories listings with counts
-- [ ] Author/category detail navigation
-- [ ] Settings: profile, password, delete account
+- [x] My reviews and ratings; edit/delete
+- [x] Reports tabs and data tables
+- [x] Report query catalog viewer (SQL shown as text)
+- [x] Authors/categories listings with counts
+- [x] Author/category detail navigation
+- [x] Settings: profile, password, delete account
 
 **Exit:** all sidebar routes render real data, none use placeholders.
+
+Done 2026-11-24 for `/reviews`, `/reports`, `/authors`, and `/settings`
+(`/shelves` and `/progress` are F5). Checked in a headless Chrome against the
+Go API and PostgreSQL with seeds: editing a review's title and body
+(`PATCH /api/reviews/{id}`), changing and removing a rating from the lists,
+deleting a review; every report tab, the window and minimum-ratings choices,
+and the "SQL qNN" links into the query catalog; author and category search,
+paging, detail pages, and an unknown ID (404 message); saving and restoring the
+profile, a bad avatar address, a wrong current password (field error, still
+signed in), changing the password, and deleting a throwaway account (session
+cleared, sent to `/`); and every page at 390 px without horizontal scrolling.
+Notes:
+
+- **Backend change:** `GET /api/users/me/reviews` and `/api/users/me/ratings`
+  now return `bookTitle` and `bookCoverUrl`. The SQL already selected them;
+  the repository dropped them. Added to `openapi.yaml` and the integration test.
+- Tabs, pages, and report parameters are in the URL (`lib/page-params.ts`):
+  `/reviews?tab=ratings&page=2`, `/authors?tab=categories&q=sci`,
+  `/reports?tab=popular&days=90`, `/reports?tab=queries&sql=q05`.
+- Each report reads its `X-Query-Id` header (`apiClientWithHeaders`) and links
+  to that entry in the query catalog. The SQL is rendered as text in a `<pre>`.
+- On `/reviews` the stars save the rating at once (`POST .../ratings`); "Edit"
+  changes only the title and body (`PATCH`), and a blank title clears it.
+- Recent activity in the reading report has only book IDs, so its titles come
+  from `GET /api/books/{id}` (10 at most, shared with the book page cache).
+- Author and category details are routes: `/authors/[authorId]` and
+  `/categories/[categoryId]`; the sidebar marks "Authors & categories" for both.
+- The profile form sends only changed fields. The API cannot clear an avatar
+  (`coalesce` in `UpdateUser`), so an empty avatar field is never sent; an
+  empty bio or genre is sent as `""` and clears it.
+- Deleting the account leaves with a full page load to `/`, which drops the
+  query cache; clearing the cache first would make `AuthBoundary` redirect to
+  `/login` before the navigation.
 
 ### Phase F7 — Public pages and polish
 

@@ -17,8 +17,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const logout = useLogout();
   const [search, setSearch] = useState("");
 
+  // Category pages (/categories/[id]) belong to "Authors & categories".
+  const section = pathname.startsWith("/categories/") ? "/authors" : pathname;
   const navLink = ([icon, label, href]: string[]) => (
-    <Link key={href} href={href} aria-current={pathname === href || pathname.startsWith(`${href}/`) ? "page" : undefined}>
+    <Link key={href} href={href} aria-current={section === href || section.startsWith(`${href}/`) ? "page" : undefined}>
       <span>{icon}</span>{label}
     </Link>
   );

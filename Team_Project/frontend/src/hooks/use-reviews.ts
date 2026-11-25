@@ -4,7 +4,10 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClie
 
 import { queryKeys } from "@/lib/query-keys";
 import { reviewService } from "@/services/review-service";
-import type { Book, RatingSummary, ReviewUpsertInput } from "@/types/domain";
+import type { Book, RatingSummary, ReviewInput, ReviewUpsertInput } from "@/types/domain";
+
+/** Page size of the /reviews lists. */
+export const MY_LIST_PAGE_SIZE = 10;
 
 /** Ratings and reviews change the book's summary, every list showing it, and the reader's own lists. */
 function refreshReviews(client: QueryClient) {
@@ -55,6 +58,26 @@ export function useSaveReview(bookId: string) {
     onSuccess: (result) => {
       client.setQueryData(queryKeys.myReviewFor(bookId), result.review);
       patchBook(client, bookId, result.rating ? { myRating: result.rating.value } : {}, result.summary);
+      refreshReviews(client);
+    },
+  });
+}
+
+export function useMyReviews(page: number) {
+  return useQuery({ queryKey: queryKeys.myReviewsPage(page), queryFn: () => reviewService.myReviews(page, MY_LIST_PAGE_SIZE), placeholderData: keepPreviousData });
+}
+
+export function useMyRatings(page: number) {
+  return useQuery({ queryKey: queryKeys.myRatingsPage(page), queryFn: () => reviewService.myRatings(page, MY_LIST_PAGE_SIZE), placeholderData: keepPreviousData });
+}
+
+/** PATCH /api/reviews/{reviewId}: title and body only; a blank title clears it. */
+export function useUpdateReview(bookId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ reviewId, input }: { reviewId: string; input: ReviewInput }) => reviewService.updateReview(reviewId, input),
+    onSuccess: (review) => {
+      client.setQueryData(queryKeys.myReviewFor(bookId), review);
       refreshReviews(client);
     },
   });

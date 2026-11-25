@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { apiClient, apiClientPage, query } from "@/lib/api-client";
+import { apiClient, apiClientPage, apiClientWithHeaders, query } from "@/lib/api-client";
 import { ApiError, errorMessage } from "@/lib/errors";
 
 // Each call gets a fresh Response (a body can be read only once).
@@ -79,6 +79,15 @@ describe("apiClientPage", () => {
   it("defaults sensibly without headers", async () => {
     mockFetch(json(200, [{ id: "a" }]));
     await expect(apiClientPage("/api/shelves")).resolves.toEqual({ items: [{ id: "a" }], total: 1, page: 1, pageSize: 1 });
+  });
+});
+
+describe("apiClientWithHeaders", () => {
+  it("returns the body and the response headers", async () => {
+    mockFetch(json(200, [{ bookId: "b" }], { "X-Query-Id": "q05" }));
+    const { data, headers } = await apiClientWithHeaders("/api/reports/popular");
+    expect(data).toEqual([{ bookId: "b" }]);
+    expect(headers.get("X-Query-Id")).toBe("q05");
   });
 });
 

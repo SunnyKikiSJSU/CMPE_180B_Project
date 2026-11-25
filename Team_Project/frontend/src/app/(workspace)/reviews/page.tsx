@@ -1,2 +1,8 @@
-import { SectionPage } from "@/components/SectionPage";
-export default function ReviewsPage() { return <SectionPage eyebrow="Reflect" title="Ratings & reviews" description="Keep your ratings and reflections connected to the books you have read." icon="★" emptyTitle="No ratings or reviews yet" emptyDescription="Your reviews will be stored with the catalog and can be edited, filtered, and revisited here." filters={["Rating", "Reviewed status", "Sort by"]} />; }
+import { Suspense } from "react";
+
+import { LoadingState } from "@/components/LoadingState";
+import { MyReviewsView } from "@/components/reviews/MyReviewsView";
+
+export default function ReviewsPage() {
+  return <Suspense fallback={<LoadingState />}><MyReviewsView /></Suspense>;
+}

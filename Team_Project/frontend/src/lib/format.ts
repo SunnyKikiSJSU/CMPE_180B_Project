@@ -36,3 +36,22 @@ export function formatDate(timestamp: string | null | undefined): string {
   const d = new Date(timestamp);
   return Number.isNaN(d.getTime()) ? "" : shortDate.format(d);
 }
+
+/** "1,234". */
+export function formatCount(n: number | null | undefined): string {
+  return (n ?? 0).toLocaleString("en-US");
+}
+
+/** An average rating with two decimals, as the reports compute it ("4.08"); "—" with no ratings. */
+export function formatAverage(average: number | null | undefined, count?: number): string {
+  if (count === 0) return "—";
+  return (average ?? 0).toFixed(2);
+}
+
+const dayLabel = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+
+/** "23 Nov" for a report's YYYY-MM-DD day (a UTC calendar date). */
+export function formatDay(date: string): string {
+  const d = new Date(`${date.slice(0, 10)}T00:00:00Z`);
+  return Number.isNaN(d.getTime()) ? date : dayLabel.format(d);
+}

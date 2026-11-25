@@ -2184,6 +2184,13 @@ components:
           format: date-time
         summary:
           $ref: "#/components/schemas/RatingSummary"
+        bookTitle:
+          type: string
+          description: Only in GET /api/users/me/ratings.
+        bookCoverUrl:
+          type: string
+          nullable: true
+          description: Only in GET /api/users/me/ratings; omitted when the book has no cover.
     RatingInput:
       type: object
       required: [value]
@@ -2253,6 +2260,13 @@ components:
         updatedAt:
           type: string
           format: date-time
+        bookTitle:
+          type: string
+          description: Only in GET /api/users/me/reviews.
+        bookCoverUrl:
+          type: string
+          nullable: true
+          description: Only in GET /api/users/me/reviews; omitted when the book has no cover.
     ReviewInput:
       type: object
       required: [body]

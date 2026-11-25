@@ -21,10 +21,16 @@ export const queryKeys = {
   },
   history: ["history"] as const,
   historyFor: (bookId: string) => ["history", bookId] as const,
+  /** GET /api/users/me: the user with profile and stats (settings). */
+  profile: ["users", "me"] as const,
   myReviews: ["reviews", "me"] as const,
+  myReviewsPage: (page: number) => ["reviews", "me", "page", page] as const,
   myReviewFor: (bookId: string) => ["reviews", "me", "book", bookId] as const,
   myRatings: ["ratings", "me"] as const,
+  myRatingsPage: (page: number) => ["ratings", "me", "page", page] as const,
   authors: (filters: object) => ["authors", filters] as const,
+  author: (id: string, page: number) => ["authors", "detail", id, page] as const,
   categories: (filters: object) => ["categories", filters] as const,
+  category: (id: string, page: number) => ["categories", "detail", id, page] as const,
   reports: (type: string, params?: object) => ["reports", type, params ?? {}] as const,
 };
