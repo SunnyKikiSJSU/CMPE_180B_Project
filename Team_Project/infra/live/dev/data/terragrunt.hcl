@@ -27,4 +27,7 @@ inputs = {
   # Temporary direct access for migrations from a laptop, for example
   # ["203.0.113.7/32"]. Keep empty otherwise.
   allowed_cidr_blocks = []
+  # The account is on the AWS free plan, which refuses more than 1 day of
+  # automated backups (FreeTierRestrictionError). Raise this after upgrading.
+  backup_retention_days = 1
 }

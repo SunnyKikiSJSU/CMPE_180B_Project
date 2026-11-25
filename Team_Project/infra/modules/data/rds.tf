@@ -17,8 +17,14 @@ resource "aws_db_instance" "this" {
   publicly_accessible    = var.publicly_accessible
   multi_az               = var.multi_az
 
+  # Daily automated backups with point-in-time restore. Backup storage up to
+  # the allocated storage is free.
+  backup_retention_period = var.backup_retention_days
+  copy_tags_to_snapshot   = true
+
   skip_final_snapshot = var.skip_final_snapshot
-  deletion_protection = false
+  deletion_protection = var.deletion_protection
+  apply_immediately   = var.apply_immediately
 
   tags = {
     Project = var.project_name

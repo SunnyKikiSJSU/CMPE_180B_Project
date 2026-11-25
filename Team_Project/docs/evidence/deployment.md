@@ -76,3 +76,14 @@ To save money between sessions, stop the instance and RDS
 (`aws ec2 stop-instances`, `aws rds stop-db-instance`); the containers restart
 on boot (`restart: unless-stopped`) once RDS is available again. RDS restarts
 by itself after 7 days stopped.
+
+## Hardening (2026-11-25)
+
+| Change | Result |
+| --- | --- |
+| RDS automated backups (`live/dev/data`) | Retention 0 → 1 day (the AWS free plan refuses more); latest restorable time is reported, and the first automated snapshot exists |
+| RDS deletion protection, tags copied to snapshots | On. `terraform destroy` needs `deletion_protection = false` applied first |
+| Database restart while turning backups on | About 5 minutes; afterwards the site and `/api/books` return 200 |
+| Budget (`live/dev/budget`) | `cmpe180b-team-project-monthly`, $20 a month; email at 80% actual and 100% forecast |
+| Old console database `book-metaverse-database` | Deleted with the team's agreement (it was public), with its automated backups |
+| VPC default security group | The rule allowing 5432 from `0.0.0.0/0` removed; nothing used the group |
