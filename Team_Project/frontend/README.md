@@ -24,25 +24,26 @@ does not change it.
 The Go API must be running for sign-in (`../backend/README.md`). Seed accounts
 such as `reader1@example.com` / `Password123!` work after the seeds are loaded.
 
+## Docker
+
+`Dockerfile` builds a small production image from Next.js's standalone output
+(the build sets `NEXT_OUTPUT=standalone`, which `next.config.ts` reads): Node.js 22 on Alpine, runs as the
+non-root `node` user, listens on port 3000, and has a health check. Compose
+builds it as the `web` service with `API_PROXY_TARGET=http://api:8080`:
+
+```bash
+./scripts/dev.sh local          # from Team_Project: database, API, and web
+docker build -t book-metaverse-web --build-arg API_PROXY_TARGET=http://api:8080 .
+```
+
 ## Status
 
-Connected to the API so far (FRONTEND_PLAN.md phases F0-F2):
-
-- **Sign-in, registration, and sign-out** against the Go API. The session is
-  the `bm_session` HttpOnly cookie; nothing is stored in `localStorage`.
-- **Workspace guard:** every page under `(workspace)` checks
-  `GET /api/auth/me`. Signed-out visitors go to `/login?returnTo=<page>` and
-  come back after signing in; if the API is unreachable, a retry card is shown.
-- **App shell:** the signed-in user's name, the current page in the sidebar,
-  sign-out, and the header search (to `/catalog?q=`).
-- **Foundation for the other pages:** `lib/api-client.ts` (error envelope as
-  `ApiError`, `204` handling, pagination headers), `types/domain.ts` (every
-  schema the UI uses), `lib/query-keys.ts`, `lib/format.ts`, and the TanStack
-  Query provider (no retry on 4xx; a query's 401 re-checks the session).
-
-The public home carousel shows popular books from the API; no page uses mock
-data. The remaining work (reviews, reports, authors, settings, and polish) is
-planned in [`../FRONTEND_PLAN.md`](../FRONTEND_PLAN.md).
+Every page uses the API (FRONTEND_PLAN.md phases F0-F8): sign-in and
+registration, the catalog with Open Library search and import, book pages with
+shelf, progress, rating, and review actions, shelves and reading progress,
+reviews, reports, authors and categories, and settings. No page uses mock
+data. The manual UI checklist with screenshots is in
+[`../docs/evidence/ui-checklist.md`](../docs/evidence/ui-checklist.md).
 
 ## Checks
 

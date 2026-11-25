@@ -937,15 +937,32 @@ PostgreSQL with seeds:
 ### Phase F8 — Quality gates and deployment
 
 - [x] Lint and type-check
-- [ ] Vitest unit tests
-- [ ] Manual UI checklist with screenshots (`docs/evidence/ui-checklist.md`)
-- [ ] `frontend/Dockerfile` (build argument `API_PROXY_TARGET=http://api:8080`)
+- [x] Vitest unit tests (51)
+- [x] Manual UI checklist with screenshots (`docs/evidence/ui-checklist.md`)
+- [x] `frontend/Dockerfile` (build argument `API_PROXY_TARGET=http://api:8080`)
       and the Compose `web` service
 - [ ] Check the session cookie through the proxy on the EC2 address (plain
-      HTTP, `COOKIE_SECURE=false`)
-- [ ] README/DEVELOPMENT updates
+      HTTP, `COOKIE_SECURE=false`): done locally through the `web` container;
+      repeat on EC2 in the deployment phase
+- [x] README/DEVELOPMENT updates
 
 **Exit:** the checks in §6.3 pass and the app runs from Compose against the API.
+
+Done 2026-11-25 (branch `feat/frontend-f8-docker`):
+
+- `frontend/Dockerfile`: three stages (`npm ci`, `next build`, runtime) on
+  `node:22-alpine`; the runtime copies only `.next/standalone` and
+  `.next/static` (332 MB image, no source), runs as `node`, sets
+  `HOSTNAME=0.0.0.0` so it listens on IPv4, and has a `wget` health check.
+  `API_PROXY_TARGET` is a build argument because rewrites are fixed at build
+  time. `.dockerignore` keeps `node_modules`, `.next`, and `.env*` out.
+- `web` service in `docker-compose.yml` and `docker-compose-rdbs.yml`: port
+  `WEB_PORT` (3000), waits for a healthy `api`. `scripts/dev.sh local|rds` now
+  starts `api web` and prints the web URL.
+- Verified with `./scripts/dev.sh local` from a clean database: all three
+  containers healthy, the eight §6.3 flows pass through the `web` container
+  (with screenshots), the 404 page keeps its status, and the session cookie
+  comes back through the proxy as `HttpOnly; SameSite=Lax` without `Secure`.
 
 ### 7.1 Backend dependencies
 

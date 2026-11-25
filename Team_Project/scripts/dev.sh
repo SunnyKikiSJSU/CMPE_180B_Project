@@ -216,6 +216,7 @@ if ! docker info >/dev/null 2>&1; then
 fi
 
 API_PORT="$(get_env API_PORT 8080)"
+WEB_PORT="$(get_env WEB_PORT 3000)"
 LOCAL_PROJECT_NAME="$(
   get_env COMPOSE_PROJECT_NAME "$LOCAL_PROJECT_NAME"
 )"
@@ -253,9 +254,9 @@ if [[ "$TARGET" == "local" ]]; then # For local
       --profile tools run --rm --no-deps seed
   fi
 
-  step "Building and starting the local backend"
+  step "Building and starting the local backend and web app"
   compose_cmd "$LOCAL_COMPOSE_FILE" "$LOCAL_PROJECT_NAME" \
-    up --detach --build --wait api
+    up --detach --build --wait api web
 else # for RDS
   require_env \
     RDS_HOST RDS_PORT RDS_DB RDS_USER RDS_PASSWORD RDS_SSLMODE
@@ -299,9 +300,9 @@ VPC, allow its security group instead and run this script from that machine."
       --profile tools run --rm --no-deps seed
   fi
 
-  step "Building and starting the RDS-backed backend"
+  step "Building and starting the RDS-backed backend and web app"
   compose_cmd "$RDS_COMPOSE_FILE" "$RDS_PROJECT_NAME" \
-    up --detach --build --wait api
+    up --detach --build --wait api web
 fi
 
 step "Checking backend database readiness"
@@ -313,3 +314,4 @@ printf 'Target:   %s\n' "$TARGET"
 printf 'Health:   http://127.0.0.1:%s/healthz\n' "$API_PORT"
 printf 'Ready:    http://127.0.0.1:%s/readyz\n' "$API_PORT"
 printf 'Response: %s\n' "$ready_body"
+printf 'Web app:  http://localhost:%s\n' "$WEB_PORT"
