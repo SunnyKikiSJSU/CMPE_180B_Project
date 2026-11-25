@@ -23,6 +23,61 @@ export function useShelves() {
   return useQuery({ queryKey: queryKeys.shelves.all, queryFn: readingService.listShelves });
 }
 
+export function useShelfBooks(shelfId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.shelves.books(shelfId ?? ""),
+    queryFn: () => readingService.shelfBooks(shelfId ?? ""),
+    enabled: Boolean(shelfId),
+  });
+}
+
+function refreshShelves(client: QueryClient) {
+  void client.invalidateQueries({ queryKey: queryKeys.shelves.all });
+  void client.invalidateQueries({ queryKey: ["shelves"] });
+  void client.invalidateQueries({ queryKey: queryKeys.progress.all });
+  void client.invalidateQueries({ queryKey: queryKeys.history });
+  void client.invalidateQueries({ queryKey: ["reports"] });
+}
+
+export function useCreateShelf() {
+  const client = useQueryClient();
+  return useMutation({ mutationFn: (name: string) => readingService.createShelf(name), onSuccess: () => refreshShelves(client) });
+}
+
+export function useRenameShelf() {
+  const client = useQueryClient();
+  return useMutation({ mutationFn: ({ shelfId, name }: { shelfId: string; name: string }) => readingService.renameShelf(shelfId, name), onSuccess: () => refreshShelves(client) });
+}
+
+export function useDeleteShelf() {
+  const client = useQueryClient();
+  return useMutation({ mutationFn: (shelfId: string) => readingService.deleteShelf(shelfId), onSuccess: () => refreshShelves(client) });
+}
+
+export function useMoveShelfBook() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ shelfId, bookId, targetShelfId }: { shelfId: string; bookId: string; targetShelfId: string }) => readingService.moveShelfBook(shelfId, bookId, targetShelfId),
+    onSuccess: () => refreshShelves(client),
+  });
+}
+
+export function useRemoveShelfBook() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ shelfId, bookId }: { shelfId: string; bookId: string }) => readingService.removeFromShelf(shelfId, bookId),
+    onSuccess: () => refreshShelves(client),
+  });
+}
+
+export function useReadingProgress() {
+  return useQuery({ queryKey: queryKeys.progress.all, queryFn: readingService.listProgress });
+}
+
+export function useReadingHistory(limit = 100) {
+  return useQuery({ queryKey: ["history", limit], queryFn: () => readingService.history({ limit }) });
+}
+
 /**
  * Which of the reader's custom shelves hold the book. The API has no direct
  * call, so each custom shelf's books are read (readers have few custom shelves).
