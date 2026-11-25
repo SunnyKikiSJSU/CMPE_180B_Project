@@ -53,21 +53,27 @@ export async function apiClient<T>(path: string, options?: RequestOptions): Prom
   return readJSON<T>(await send(path, options));
 }
 
-function intHeader(response: Response, name: string, fallback: number): number {
-  const n = Number.parseInt(response.headers.get(name) ?? "", 10);
+function intHeader(headers: Headers, name: string, fallback: number): number {
+  const n = Number.parseInt(headers.get(name) ?? "", 10);
   return Number.isFinite(n) ? n : fallback;
+}
+
+/** X-Total-Count, X-Page, and X-Page-Size, defaulting to one page of `count` items. */
+export function pageHeaders(headers: Headers, count: number): Omit<Page<never>, "items"> {
+  return { total: intHeader(headers, "X-Total-Count", count), page: intHeader(headers, "X-Page", 1), pageSize: intHeader(headers, "X-Page-Size", count) };
+}
+
+/** A JSON response with its headers (reports send X-Query-Id; detail pages send pagination headers). */
+export async function apiClientWithHeaders<T>(path: string, options?: RequestOptions): Promise<{ data: T; headers: Headers }> {
+  const response = await send(path, options);
+  return { data: await readJSON<T>(response), headers: response.headers };
 }
 
 /** A list endpoint: the raw array plus X-Total-Count, X-Page, and X-Page-Size. */
 export async function apiClientPage<T>(path: string, options?: RequestOptions): Promise<Page<T>> {
-  const response = await send(path, options);
-  const items = (await readJSON<T[]>(response)) ?? [];
-  return {
-    items,
-    total: intHeader(response, "X-Total-Count", items.length),
-    page: intHeader(response, "X-Page", 1),
-    pageSize: intHeader(response, "X-Page-Size", items.length),
-  };
+  const { data, headers } = await apiClientWithHeaders<T[] | undefined>(path, options);
+  const items = data ?? [];
+  return { items, ...pageHeaders(headers, items.length) };
 }
 
 /** Builds a query string from defined, non-empty values. */

@@ -5,7 +5,7 @@
 import { useState } from "react";
 
 /** A book cover, or a lettered placeholder when there is none or it fails to load. */
-export function CoverImage({ src, title, size = "card" }: { src: string | null | undefined; title: string; size?: "card" | "detail" }) {
+export function CoverImage({ src, title, size = "card" }: { src: string | null | undefined; title: string; size?: "card" | "detail" | "thumb" }) {
   const [failed, setFailed] = useState(false);
   const className = `cover cover-${size}`;
   if (!src || failed || !src.startsWith("https://")) {

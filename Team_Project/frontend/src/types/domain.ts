@@ -18,6 +18,9 @@ export interface User {
 export interface AuthResponse { user: User; accessToken: string; }
 export interface RegisterRequest { email: string; password: string; displayName: string; }
 export interface LoginRequest { email: string; password: string; }
+/** PATCH /api/users/me: an omitted field is unchanged; no field can be set back to null. */
+export interface UpdateProfileRequest { displayName?: string; avatarUrl?: string; bio?: string; favoriteGenre?: string; }
+export interface ChangePasswordRequest { currentPassword: string; newPassword: string; }
 
 // --- Catalog ----------------------------------------------------------------
 
@@ -128,7 +131,17 @@ export interface ReadingHistoryEvent {
 
 export interface RatingSummary { averageRating: number; ratingCount: number; reviewCount: number; }
 export interface RatingSummaryResponse { averageRating: number; ratingCount: number; distribution: Record<"1" | "2" | "3" | "4" | "5", number>; }
-export interface Rating { bookId: string; userId: string; value: number; createdAt?: string; updatedAt?: string; summary?: RatingSummary; }
+export interface Rating {
+  bookId: string;
+  userId: string;
+  value: number;
+  createdAt?: string;
+  updatedAt?: string;
+  summary?: RatingSummary;
+  /** Only in GET /api/users/me/ratings. */
+  bookTitle?: string;
+  bookCoverUrl?: string | null;
+}
 export interface ReviewUser { id: string; displayName: string; avatarUrl: string | null; }
 export interface Review {
   id: string;
@@ -140,6 +153,9 @@ export interface Review {
   user?: ReviewUser;
   createdAt: string;
   updatedAt?: string;
+  /** Only in GET /api/users/me/reviews. */
+  bookTitle?: string;
+  bookCoverUrl?: string | null;
 }
 export interface ReviewInput { title?: string; body: string; }
 export interface ReviewUpsertInput extends ReviewInput { rating?: number; }
@@ -157,6 +173,8 @@ export interface AuthorRanking { authorId: string; name: string; bookCount: numb
 export interface CategoryRanking { categoryId: string; name: string; bookCount: number; ratingCount: number; averageRating: number; ranking: number; }
 export interface ReviewActivityPoint { date: string; reviews: number; ratings: number; }
 export interface QueryCatalogEntry { id: string; name: string; description: string; endpoints: string[]; queries: string[]; sql: string; }
+/** A report body with its X-Query-Id header (the evidence ID in GET /api/reports/queries). */
+export interface ReportResult<T> { data: T; queryId: string | null; }
 
 // --- Lists ------------------------------------------------------------------
 

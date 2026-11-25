@@ -830,14 +830,69 @@ Review fixes:
 ### Phase F6 — Reviews, ratings, reports, authors, settings
 
 - [x] Page shells
-- [ ] My reviews and ratings; edit/delete
-- [ ] Reports tabs and data tables
-- [ ] Report query catalog viewer (SQL shown as text)
-- [ ] Authors/categories listings with counts
-- [ ] Author/category detail navigation
-- [ ] Settings: profile, password, delete account
+- [x] My reviews and ratings; edit/delete
+- [x] Reports tabs and data tables
+- [x] Report query catalog viewer (SQL shown as text)
+- [x] Authors/categories listings with counts
+- [x] Author/category detail navigation
+- [x] Settings: profile, password, delete account
 
 **Exit:** all sidebar routes render real data, none use placeholders.
+
+Done 2026-11-24 for `/reviews`, `/reports`, `/authors`, and `/settings`
+(`/shelves` and `/progress` are F5). Checked in a headless Chrome against the
+Go API and PostgreSQL with seeds: editing a review's title and body
+(`PATCH /api/reviews/{id}`), changing and removing a rating from the lists,
+deleting a review; every report tab, the window and minimum-ratings choices,
+and the "SQL qNN" links into the query catalog; author and category search,
+paging, detail pages, and an unknown ID (404 message); saving and restoring the
+profile, a bad avatar address, a wrong current password (field error, still
+signed in), changing the password, and deleting a throwaway account (session
+cleared, sent to `/`); and every page at 390 px without horizontal scrolling.
+Notes:
+
+- **Backend change:** `GET /api/users/me/reviews` and `/api/users/me/ratings`
+  now return `bookTitle` and `bookCoverUrl`. The SQL already selected them;
+  the repository dropped them. Added to `openapi.yaml` and the integration test.
+- Tabs, pages, and report parameters are in the URL (`lib/page-params.ts`):
+  `/reviews?tab=ratings&page=2`, `/authors?tab=categories&q=sci`,
+  `/reports?tab=popular&days=90`, `/reports?tab=queries&sql=q05`.
+- Each report reads its `X-Query-Id` header (`apiClientWithHeaders`) and links
+  to that entry in the query catalog. The SQL is rendered as text in a `<pre>`.
+- On `/reviews` the stars save the rating at once (`POST .../ratings`); "Edit"
+  changes only the title and body (`PATCH`), and a blank title clears it.
+- Recent activity in the reading report has only book IDs, so its titles come
+  from `GET /api/books/{id}` (10 at most, shared with the book page cache).
+- Author and category details are routes: `/authors/[authorId]` and
+  `/categories/[categoryId]`; the sidebar marks "Authors & categories" for both.
+- The profile form sends only changed fields. The API cannot clear an avatar
+  (`coalesce` in `UpdateUser`), so an empty avatar field is never sent; an
+  empty bio or genre is sent as `""` and clears it.
+- Deleting the account leaves with a full page load to `/`, which drops the
+  query cache; clearing the cache first would make `AuthBoundary` redirect to
+  `/login` before the navigation.
+
+Review and merge with `main` (2026-11-25, branch `feat/frontend-f6`): merged
+#16/#17 (conflicts in `AppShell.tsx`, `DashboardView.tsx`, `use-dashboard.ts`,
+`query-keys.ts`: kept the drawer menu with F6's `/categories` highlighting, the
+paginated "currently reading" list with F6's shared user-stats query). Go unit
+and integration tests pass on a seeded database (all four seed files,
+including `001_smoke_test.sql`, which `TestPublicReportsOnSeedData` needs).
+Fixes from review and browser testing:
+
+- **Authors ↔ Categories tab switch** showed the previous list for a moment
+  (`keepPreviousData` across query keys), so author names appeared under
+  Categories and linked to `/categories/<authorId>` (404). Previous data is now
+  kept only while paging the same list.
+- **Settings counts** (shelves, finished, reviews, ratings) did not refresh
+  after review, rating, shelf, or progress changes for 30 s; those mutations now
+  also invalidate `["users","me"]`.
+- Re-checked in a browser: rating and editing on `/reviews` (Settings shows the
+  new count at once), delete; every report tab; author and category detail;
+  profile save (header name updates), a `javascript:` avatar rejected, wrong
+  and correct current password, account deletion (old login then fails); and
+  all F6 pages at 360/768/1280 px (the ranking tables scroll inside their own
+  box on phones). This completes the F7 follow-up for these pages.
 
 ### Phase F7 — Public pages and polish
 

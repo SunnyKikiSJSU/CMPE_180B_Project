@@ -100,7 +100,7 @@ services:
           fi
           found=1
           echo "Applying seed file: $$file"
-          psql -v ON_ERROR_STOP=1 --file "$$file"
+          psql -v ON_ERROR_STOP=1 -P pager=off --file "$$file"
         done
         if [ "$$found" -eq 0 ]; then
           echo "No seed files found in /seeds"

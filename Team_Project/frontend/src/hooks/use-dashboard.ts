@@ -2,12 +2,14 @@
 
 import { useQuery } from "@tanstack/react-query";
 
+import { useUserStats } from "@/hooks/use-reports";
 import { queryKeys } from "@/lib/query-keys";
-import { reportService } from "@/services/report-service";
 import { readingService } from "@/services/reading-service";
 
 export function useDashboardData() {
-  const stats = useQuery({ queryKey: queryKeys.reports("user-stats"), queryFn: reportService.userStats });
+  // Shares the cache entry of /reports. Its data is { data, queryId }, so the
+  // dashboard reads stats.data.data.
+  const stats = useUserStats();
   const reading = { status: "reading", pageSize: 3 } as const;
   const progress = useQuery({ queryKey: queryKeys.progress.list(reading), queryFn: () => readingService.listProgress(reading) });
   const shelves = useQuery({ queryKey: queryKeys.shelves.all, queryFn: readingService.listShelves });

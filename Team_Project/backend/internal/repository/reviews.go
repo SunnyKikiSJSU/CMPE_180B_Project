@@ -88,7 +88,8 @@ func (r *Reviews) MyRatings(ctx context.Context, userID uuid.UUID, page domain.P
 	for _, row := range rows {
 		total = int64(row.TotalCount)
 		out = append(out, domain.Rating{BookID: row.BookID, UserID: row.UserID, Value: row.RatingValue,
-			CreatedAt: timestamp(row.CreatedAt), UpdatedAt: timestamp(row.UpdatedAt)})
+			CreatedAt: timestamp(row.CreatedAt), UpdatedAt: timestamp(row.UpdatedAt),
+			BookTitle: row.BookTitle, BookCoverURL: text(row.CoverUrl)})
 	}
 	return out, total, nil
 }
@@ -159,6 +160,7 @@ func (r *Reviews) MyReviews(ctx context.Context, userID uuid.UUID, page domain.P
 		out = append(out, domain.Review{
 			ID: row.ReviewID, BookID: row.BookID, UserID: row.UserID, Title: text(row.Title), Body: row.ReviewText,
 			Rating: int2(row.RatingValue), CreatedAt: timestamp(row.CreatedAt), UpdatedAt: timestamp(row.UpdatedAt),
+			BookTitle: row.BookTitle, BookCoverURL: text(row.CoverUrl),
 		})
 	}
 	return out, total, nil

@@ -18,8 +18,7 @@ export function DashboardView() {
   if (dashboard.isPending) return <LoadingState message="Loading your reading dashboard…" cards={4} />;
   if (dashboard.error) return <ErrorState error={dashboard.error} onRetry={dashboard.retry} />;
 
-  const stats = dashboard.stats.data;
-
+  const stats = dashboard.stats.data?.data;
   const shelves = dashboard.shelves.data ?? [];
   const history = dashboard.history.data ?? [];
   const currentlyReading = dashboard.progress.data?.items ?? [];

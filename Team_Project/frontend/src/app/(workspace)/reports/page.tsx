@@ -1,2 +1,8 @@
-import { SectionPage } from "@/components/SectionPage";
-export default function ReportsPage() { return <SectionPage eyebrow="Reflect" title="Reading reports" description="Turn your reading history into useful summaries, trends, and discoveries." icon="▥" emptyTitle="Reports will grow with your reading" emptyDescription="Books read, pages completed, favorite categories, and reading trends will appear here." filters={["Date range", "Category", "View"]} />; }
+import { Suspense } from "react";
+
+import { LoadingState } from "@/components/LoadingState";
+import { ReportsView } from "@/components/reports/ReportsView";
+
+export default function ReportsPage() {
+  return <Suspense fallback={<LoadingState />}><ReportsView /></Suspense>;
+}

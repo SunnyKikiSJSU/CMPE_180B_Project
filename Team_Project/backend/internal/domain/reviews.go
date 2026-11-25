@@ -27,6 +27,9 @@ type Rating struct {
 	CreatedAt time.Time      `json:"createdAt"`
 	UpdatedAt time.Time      `json:"updatedAt"`
 	Summary   *RatingSummary `json:"summary,omitempty"`
+	// BookTitle and BookCoverURL are set only by GET /api/users/me/ratings.
+	BookTitle    string  `json:"bookTitle,omitempty"`
+	BookCoverURL *string `json:"bookCoverUrl,omitempty"`
 }
 
 type ReviewUser struct {
@@ -47,6 +50,9 @@ type Review struct {
 	User      *ReviewUser `json:"user,omitempty"`
 	CreatedAt time.Time   `json:"createdAt"`
 	UpdatedAt time.Time   `json:"updatedAt"`
+	// BookTitle and BookCoverURL are set only by GET /api/users/me/reviews.
+	BookTitle    string  `json:"bookTitle,omitempty"`
+	BookCoverURL *string `json:"bookCoverUrl,omitempty"`
 }
 
 // ReviewRatingResult is PUT /api/books/{bookId}/review.

@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -28,10 +29,11 @@ type ratingSummary struct {
 }
 
 type rating struct {
-	BookID  uuid.UUID
-	UserID  uuid.UUID
-	Value   int
-	Summary *summary
+	BookID    uuid.UUID
+	UserID    uuid.UUID
+	Value     int
+	Summary   *summary
+	BookTitle string
 }
 
 type review struct {
@@ -40,8 +42,9 @@ type review struct {
 	UserID uuid.UUID
 	Title  *string
 	Body   string
-	Rating *int
-	User   *struct{ DisplayName string }
+	Rating    *int
+	User      *struct{ DisplayName string }
+	BookTitle string
 }
 
 type apiError struct {
@@ -161,7 +164,8 @@ func TestRatingsAndSummary(t *testing.T) {
 
 	rec = call(h, "GET", "/api/users/me/ratings", "", tokens[0])
 	mine := decode[[]rating](t, rec.Body.String())
-	if rec.Code != 200 || len(mine) != 1 || mine[0].BookID != bookID || mine[0].Value != 2 || rec.Header().Get("X-Total-Count") != "1" {
+	if rec.Code != 200 || len(mine) != 1 || mine[0].BookID != bookID || mine[0].Value != 2 || rec.Header().Get("X-Total-Count") != "1" ||
+		!strings.HasPrefix(mine[0].BookTitle, "Review test ") {
 		t.Fatalf("my ratings: %d %+v", rec.Code, mine)
 	}
 }
@@ -217,7 +221,7 @@ func TestReviewLifecycleAndOwnership(t *testing.T) {
 
 	rec = call(h, "GET", "/api/users/me/reviews", "", owner)
 	mine := decode[[]review](t, rec.Body.String())
-	if rec.Code != 200 || len(mine) != 1 || mine[0].ID != created.ID {
+	if rec.Code != 200 || len(mine) != 1 || mine[0].ID != created.ID || !strings.HasPrefix(mine[0].BookTitle, "Review test ") {
 		t.Fatalf("my reviews: %d %+v", rec.Code, mine)
 	}
 

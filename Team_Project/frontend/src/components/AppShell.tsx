@@ -22,10 +22,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   const menuButton = useRef<HTMLButtonElement>(null);
   const closeMenu = () => setMenuOpen(false);
 
+  // Category pages (/categories/[id]) belong to "Authors & categories".
+  const section = pathname.startsWith("/categories/") ? "/authors" : pathname;
   // The icons are decorative, so screen readers hear only the page name.
   const navLinks = (onNavigate?: () => void) => {
     const navLink = ([icon, label, href]: string[]) => (
-      <Link key={href} href={href} onClick={onNavigate} aria-current={pathname === href || pathname.startsWith(`${href}/`) ? "page" : undefined}>
+      <Link key={href} href={href} onClick={onNavigate} aria-current={section === href || section.startsWith(`${href}/`) ? "page" : undefined}>
         <span aria-hidden="true">{icon}</span>{label}
       </Link>
     );

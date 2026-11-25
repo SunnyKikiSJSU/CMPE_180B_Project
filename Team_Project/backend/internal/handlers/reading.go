@@ -62,6 +62,7 @@ func caller(r *http.Request) uuid.UUID {
 	return id
 }
 
+// ListShelves returns all shelves that belong to the caller, with status 200.
 func (h Reading) ListShelves(w http.ResponseWriter, r *http.Request) {
 	shelves, err := h.Service.Shelves(r.Context(), caller(r))
 	if err != nil {
@@ -71,6 +72,8 @@ func (h Reading) ListShelves(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, shelves)
 }
 
+// CreateShelf creates a shelf for the caller from the JSON body {name, type}.
+// Responds 201 with the new shelf.
 func (h Reading) CreateShelf(w http.ResponseWriter, r *http.Request) {
 	var req shelfRequest
 	if err := httpx.Decode(r, &req); err != nil {
@@ -85,6 +88,8 @@ func (h Reading) CreateShelf(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusCreated, shelf)
 }
 
+// RenameShelf renames the shelf in {shelfId} using the JSON body {name}.
+// Responds 200 with the updated shelf.
 func (h Reading) RenameShelf(w http.ResponseWriter, r *http.Request) {
 	shelfID, err := pathID(r, "shelfId", "Shelf")
 	if err != nil {
@@ -104,6 +109,7 @@ func (h Reading) RenameShelf(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, shelf)
 }
 
+// DeleteShelf deletes the caller's shelf in {shelfId}. Responds 204 with no body.
 func (h Reading) DeleteShelf(w http.ResponseWriter, r *http.Request) {
 	shelfID, err := pathID(r, "shelfId", "Shelf")
 	if err != nil {
@@ -117,6 +123,8 @@ func (h Reading) DeleteShelf(w http.ResponseWriter, r *http.Request) {
 	httpx.NoContent(w)
 }
 
+// ShelfBooks lists the books on the shelf in {shelfId}. Accepts page, pageSize,
+// and sort query parameters; pagination is returned in headers. Responds 200.
 func (h Reading) ShelfBooks(w http.ResponseWriter, r *http.Request) {
 	shelfID, err := pathID(r, "shelfId", "Shelf")
 	if err != nil {
@@ -137,6 +145,8 @@ func (h Reading) ShelfBooks(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, books)
 }
 
+// AddBook adds a book to the shelf in {shelfId}. The JSON body must contain
+// bookId. Responds 200 with the ShelfBookResult.
 func (h Reading) AddBook(w http.ResponseWriter, r *http.Request) {
 	shelfID, err := pathID(r, "shelfId", "Shelf")
 	if err != nil {
@@ -160,6 +170,9 @@ func (h Reading) AddBook(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, result)
 }
 
+// MoveBook moves the book in {bookId} from the shelf in {shelfId} to the shelf
+// in the JSON body's targetShelfId, which is required. Responds 200 with the
+// ShelfBookResult.
 func (h Reading) MoveBook(w http.ResponseWriter, r *http.Request) {
 	shelfID, err := pathID(r, "shelfId", "Shelf")
 	if err != nil {
@@ -188,6 +201,8 @@ func (h Reading) MoveBook(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, result)
 }
 
+// RemoveBook removes the book in {bookId} from the shelf in {shelfId}.
+// Responds 204 with no body.
 func (h Reading) RemoveBook(w http.ResponseWriter, r *http.Request) {
 	shelfID, err := pathID(r, "shelfId", "Shelf")
 	if err != nil {
@@ -206,6 +221,8 @@ func (h Reading) RemoveBook(w http.ResponseWriter, r *http.Request) {
 	httpx.NoContent(w)
 }
 
+// ListProgress lists the caller's reading progress records, paginated, with an
+// optional status filter. Responds 200.
 func (h Reading) ListProgress(w http.ResponseWriter, r *http.Request) {
 	page, err := pageParams(r)
 	if err != nil {
@@ -221,6 +238,8 @@ func (h Reading) ListProgress(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, items)
 }
 
+// GetProgress returns the caller's reading progress for the book in {bookId}.
+// Responds 200.
 func (h Reading) GetProgress(w http.ResponseWriter, r *http.Request) {
 	bookID, err := pathID(r, "bookId", "Book")
 	if err != nil {
@@ -235,6 +254,9 @@ func (h Reading) GetProgress(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, progress)
 }
 
+// UpdateProgress updates the caller's reading progress for the book in {bookId}
+// from the JSON body (currentPage, percentComplete, status, version). Responds 200
+// with the updated progress.
 func (h Reading) UpdateProgress(w http.ResponseWriter, r *http.Request) {
 	bookID, err := pathID(r, "bookId", "Book")
 	if err != nil {
@@ -254,6 +276,8 @@ func (h Reading) UpdateProgress(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, progress)
 }
 
+// DeleteProgress deletes the caller's reading progress for the book in {bookId}.
+// Responds 204 with no body.
 func (h Reading) DeleteProgress(w http.ResponseWriter, r *http.Request) {
 	bookID, err := pathID(r, "bookId", "Book")
 	if err != nil {
@@ -267,7 +291,8 @@ func (h Reading) DeleteProgress(w http.ResponseWriter, r *http.Request) {
 	httpx.NoContent(w)
 }
 
-// History is newest first; ?limit (1-100, default 20) and optional ?bookId.
+// History returns the caller's reading history, newest first. Optional query
+// parameters: limit (default 20) and bookId. Responds 200.
 func (h Reading) History(w http.ResponseWriter, r *http.Request) {
 	limit := 20
 	if raw := r.URL.Query().Get("limit"); raw != "" {
