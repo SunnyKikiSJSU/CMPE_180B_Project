@@ -8,9 +8,10 @@ import { readingService } from "@/services/reading-service";
 
 export function useDashboardData() {
   const stats = useQuery({ queryKey: queryKeys.reports("user-stats"), queryFn: reportService.userStats });
-  const progress = useQuery({ queryKey: queryKeys.progress.all, queryFn: readingService.listProgress });
+  const reading = { status: "reading", pageSize: 3 } as const;
+  const progress = useQuery({ queryKey: queryKeys.progress.list(reading), queryFn: () => readingService.listProgress(reading) });
   const shelves = useQuery({ queryKey: queryKeys.shelves.all, queryFn: readingService.listShelves });
-  const history = useQuery({ queryKey: queryKeys.history, queryFn: () => readingService.history({ limit: 5 }) });
+  const history = useQuery({ queryKey: queryKeys.historyRecent(5), queryFn: () => readingService.history({ limit: 5 }) });
 
   const queries = [stats, progress, shelves, history];
   return {
