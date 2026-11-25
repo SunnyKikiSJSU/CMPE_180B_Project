@@ -1927,9 +1927,15 @@ each frontend phase to the backend phase it needs.
 - [x] 20+ validation cases with recorded pass/fail: 34 cases in
       `database/tests/validation_cases.sql`, all passing locally and on RDS
       (`docs/evidence/validation.md`).
-- [ ] Three transaction demonstrations with commit and rollback.
-- [ ] Three concurrency demonstrations with multi-session output.
-- [ ] Five index optimizations with before/after plans and timings.
+- [x] Three transaction demonstrations with commit and rollback
+      (`docs/evidence/transactions.md`: shelf move, progress completion,
+      review + rating).
+- [x] Three concurrency demonstrations with multi-session output
+      (`docs/evidence/concurrency.md`: rating summary under `READ COMMITTED`
+      and `REPEATABLE READ`, duplicate review, stale progress).
+- [x] Five index optimizations with before/after plans and timings
+      (`docs/evidence/performance.md`: 7x-190x faster; also four cases where
+      an index does not help, with the reason).
 - [ ] `go test ./...`, the SQL test suites, frontend lint/typecheck/build,
       `terraform validate`.
 - [ ] Evidence files linked from `docs/README.md`.
@@ -1995,9 +2001,9 @@ The project is complete when:
 - [ ] Invalid ratings, duplicate reviews, and duplicate ratings are rejected.
 - [ ] Rating and review summaries stay correct after concurrent writes.
 - [ ] At least eight key queries return validated results.
-- [ ] Five indexes show measurable before/after improvement.
+- [x] Five indexes show measurable before/after improvement.
 - [x] Twenty or more validation cases pass reproducibly.
-- [ ] Three transaction and three concurrency demonstrations are documented.
+- [x] Three transaction and three concurrency demonstrations are documented.
 - [ ] The frontend uses the API for every workspace page.
 - [ ] `go test ./...`, the SQL test suites, lint, typecheck, and build pass.
 - [ ] The deployed application uses RDS for every core operation.

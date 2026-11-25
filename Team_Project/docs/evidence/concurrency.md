@@ -11,7 +11,7 @@ transaction once on `40001`/`40P01`
 | Two users rate one book at the same time | Summary row lock in `fn_refresh_book_rating_summary` (migration `000007`) | Both ratings persist; count 2, average 3.00 | `rating_summary_race.sh` |
 | Same race, second session at `REPEATABLE READ` | Snapshot isolation | `40001` on the summary row; a retry succeeds | `rating_summary_race.sh` |
 | Duplicate review race for one user/book | `reviews_user_book_unique` | One review; the second insert waits, then fails with `23505` (API: one `201`, one `409`) | `duplicate_review_race.sh` |
-| Stale progress version | `FOR UPDATE` + `version` | One `200`, one `409` | API test `TestConcurrentProgressUpdates` (Phase 5) |
+| Stale progress version (two tabs, one finishes the book) | `FOR UPDATE` on the status shelves and progress row + `version` check in `fn_update_reading_progress` | The second save waits, then fails with `BM001`; its retry with the new version succeeds; no update lost (API: one `200`, one `409`) | `stale_progress_race.sh`; API test `TestConcurrentProgressUpdates` |
 
 ## How to reproduce
 
@@ -20,6 +20,7 @@ On a migrated database (`000001`-`000007`; seeds are not needed):
 ```bash
 DATABASE_URL=postgres://... database/concurrency/rating_summary_race.sh
 DATABASE_URL=postgres://... database/concurrency/duplicate_review_race.sh
+DATABASE_URL=postgres://... database/concurrency/stale_progress_race.sh
 # or, with the local Docker database:
 PSQL="docker exec -i bm-pg psql -U book_app -d book_metaverse" database/concurrency/rating_summary_race.sh
 ```
@@ -146,6 +147,45 @@ B's insert waits on A's uncommitted entry in the unique index, then fails with
 `23505` on `reviews_user_book_unique` as soon as A commits. The API maps this to
 `409 CONFLICT`; `TestDuplicateReviewRace` sends two identical requests at once
 and gets one `201` and one `409`.
+
+### Stale progress version
+
+Recorded 2026-11-25 (PostgreSQL 18.7, migrations `000001`-`000008`).
+
+```text
+start: progress: status=reading page=40 version=1 | shelf=currently_reading | history: status_changed:reading
+
+=== Stale progress: two tabs save version 1 at the same time, READ COMMITTED ===
+[A] 20:24:50.040  A: begin, finish the book (page 300, expected version 1)
+[A] 20:24:50.045  A: saved -> status=completed page=300 version=2
+[A] 20:24:50.045  A: holding the locks for 2s
+[A] 20:24:52.057  A: committed
+[B] 20:24:50.565  B: begin, save page 120 (expected version 1)
+[B] 20:24:52.061  B: failed with BM001: stale reading progress version
+[B] 20:24:52.061  B: reload shows version 2, status completed; retry with it
+[B] 20:24:52.068  B: retry saved -> status=reading page=120 version=3
+[B stderr] ERROR:  stale reading progress version
+[B stderr] CONTEXT:  PL/pgSQL function fn_update_reading_progress(uuid,uuid,integer,text,integer) line 44 at RAISE
+[observer] 20:24:51.299  waiting: pid 493 Lock/transactionid blocked by {486} -> SELECT to_char(clock_timestamp(), 'HH24:MI:SS.MS') || ' B: saved -> st
+result: progress: status=reading page=120 version=3 | shelf=currently_reading | history: status_changed:reading, book_completed:completed, status_changed:reading
+expected: B waits for A's lock, fails with BM001 (stale version), reloads version 2, and its retry
+          saves page 120 as version 3 (status back to reading, shelf currently_reading); no update is lost
+```
+
+Both tabs loaded version 1. A finishes the book. B's save then waits, because
+`fn_update_reading_progress` first locks the reader's status shelves and then
+the progress row (`FOR UPDATE`, always in the same order, so two saves cannot
+deadlock). The observer shows B waiting on A's transaction. When A commits,
+B's `FOR UPDATE` returns the *committed* row (under `READ COMMITTED` a locking
+read sees the newest version), so B sees version 2, not the 1 it expected, and
+raises `BM001` instead of overwriting the completion with page 120. The API
+returns `409 STALE_VERSION`; the page reloads and the reader decides. Here
+the retry saves page 120 as version 3, so history keeps all three changes:
+started, completed, reading again.
+
+Without the version check the second save would still be serialized by the
+row lock, but it would silently replace the completion: a lost update from
+the reader's point of view.
 
 ## API-level tests
 
