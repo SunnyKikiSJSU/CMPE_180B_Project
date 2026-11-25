@@ -29,4 +29,6 @@ Current and planned sections:
     with before/after plans and timings, and where indexes did not help.
   - [`quality-gates.md`](evidence/quality-gates.md): the final run of every
     test suite, linter, type check, build, and `terraform validate`.
+  - [`team-testing.md`](evidence/team-testing.md): the team's manual
+    acceptance test of the live site (checklist and results).
 - `architecture/` for architecture diagrams and design decisions.
