@@ -75,7 +75,7 @@ yet.
 | Item | Effect | Note |
 | --- | --- | --- |
 | `storage_encrypted = true` | Encrypts data at rest | Forces replacement on an existing instance |
-| `backup_retention_period = 7` | Explicit backups, which the restore check in §4.4 uses | In-place change |
+| `backup_retention_period` | Explicit backups, which the restore check in §4.4 uses | **Done 2026-11-25**: 1 day (the AWS free plan's maximum), plus deletion protection. In-place change; turning backups on restarted the database once |
 | `db_name = "book_metaverse"` | Matches the local database name | Forces replacement on an existing instance. Not needed: use `appdb` in `.env` |
 
 ---
@@ -210,8 +210,11 @@ https://3-136-227-184.sslip.io.
       7 days at a time.
 - [ ] Public IPv4 addresses, including Elastic IPs, are billed hourly; release
       the Elastic IP when the project ends.
+- [x] Budget alert: `infra/live/dev/budget` emails when spend passes 80% of
+      $20 a month or the forecast passes $20 (applied 2026-11-25).
 - [ ] `terragrunt run --all -- destroy` after grading. `skip_final_snapshot = true`, so take a
-      manual snapshot first if the data should be kept.
+      manual snapshot first if the data should be kept. Deletion protection is
+      on: set `deletion_protection = false` in `live/dev/data` and apply first.
 
 ---
 

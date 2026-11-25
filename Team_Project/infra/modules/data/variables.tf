@@ -76,3 +76,26 @@ variable "skip_final_snapshot" {
   type        = bool
   default     = true
 }
+
+variable "backup_retention_days" {
+  description = "Days of automated backups (point-in-time restore). 0 turns backups off; changing to or from 0 restarts the database."
+  type        = number
+  default     = 7
+
+  validation {
+    condition     = var.backup_retention_days >= 0 && var.backup_retention_days <= 35
+    error_message = "backup_retention_days must be from 0 to 35."
+  }
+}
+
+variable "deletion_protection" {
+  description = "Refuse to delete the database (console, CLI, or terraform destroy). Set false and apply before tearing down."
+  type        = bool
+  default     = true
+}
+
+variable "apply_immediately" {
+  description = "Apply database changes now instead of in the next maintenance window. Changes that need a restart then restart the database right away."
+  type        = bool
+  default     = true
+}

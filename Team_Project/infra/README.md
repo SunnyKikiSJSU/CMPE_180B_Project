@@ -16,13 +16,15 @@ infra/
 │   ├── data/                   # The team's RDS tier, unchanged: RDS PostgreSQL 18, DB security group,
 │   │                           # random password, Secrets Manager secret, backend IAM role + instance profile
 │   ├── app_security_group/     # App security group: in HTTP 80 and HTTPS 443 (+ SSH from listed CIDRs); out 443, 80, 5432 to the VPC
-│   └── app/                    # EC2 (Amazon Linux 2023, Docker + Compose), optional Elastic IP, Session Manager
+│   ├── app/                    # EC2 (Amazon Linux 2023, Docker + Compose), optional Elastic IP, Session Manager
+│   └── budget/                 # Monthly account cost budget with email alerts
 └── live/
     └── dev/
         ├── env.hcl             # environment, region, project_name
         ├── app-sg/terragrunt.hcl
         ├── data/terragrunt.hcl # + .terraform.lock.hcl (aws 5.100.0, random 3.9.1)
-        └── app/terragrunt.hcl  # each unit commits its .terraform.lock.hcl
+        ├── app/terragrunt.hcl  # each unit commits its .terraform.lock.hcl
+        └── budget/terragrunt.hcl
 ```
 
 Order (Terragrunt resolves it from the `dependency` blocks): **app-sg → data → app**.
@@ -34,6 +36,7 @@ it without a cycle (the app instance needs the data tier's instance profile).
 | `app-sg` | `aws_security_group.app` and its rules | — |
 | `data` | RDS, its security group and subnet group, the database secret, the backend IAM role | `app-sg` security group as `backend_security_group_id`, so RDS accepts only the app instance |
 | `app` | `aws_instance.app`, `aws_eip.app`, Session Manager policy on the backend role | `app-sg` security group; `data` instance profile and role |
+| `budget` | `aws_budgets_budget.monthly` | — (independent) |
 
 ## Requirements
 
@@ -100,6 +103,7 @@ follow-up `terragrunt run --all -- plan` reports no changes.
 | `app-sg` | `cmpe180b-team-project-app-sg`: in 80 and 443 from anywhere; out 443/80 to anywhere and 5432 to the VPC |
 | `data` | RDS `cmpe180b-team-project-db` (PostgreSQL 18.3, `db.t4g.micro`, 20 GB gp3, **encrypted**, private, database `appdb`, user `appadmin`); security group allowing 5432 only from the app security group; secret `cmpe180b-team-project/db-credentials`; role and instance profile `cmpe180b-team-project-backend-*` |
 | `app` | EC2 `t3.small` (Amazon Linux 2023, Docker 25, Compose v5.8.0, Buildx v0.39.1) with an Elastic IP; Session Manager enabled, SSH closed |
+| `budget` | `cmpe180b-team-project-monthly`: $20 a month for the whole account; email when actual spend passes 80% or the forecast passes 100% |
 
 Values for `.env` and the deploy (`terragrunt output` in each unit):
 `db_address`, `db_secret_arn`, `app_url`, `instance_id`.
@@ -112,18 +116,25 @@ Session Manager; its role can read the database secret and nothing else
 and the app deployed: https://3-136-227-184.sslip.io
 ([`docs/evidence/deployment.md`](../docs/evidence/deployment.md)).
 
+2026-11-25, hardening:
+
+- `data`: automated backups (point-in-time restore), deletion protection,
+  tags copied to snapshots, and `apply_immediately`. The account is on the
+  AWS free plan, which refuses more than 1 day of backups
+  (`FreeTierRestrictionError`), so `live/dev/data` sets
+  `backup_retention_days = 1`; the module default is 7. Turning backups on
+  restarted the database once (about 5 minutes).
+- `budget` unit added and applied.
+
 There was no Terraform state to migrate. The earlier `infra/*.tf` had no
 backend block, and nothing they define existed in the account. The database
 the team has used so far, **`book-metaverse-database`**, was created in the
 console (user `postgres`, gp2, the VPC's default security group). Terraform
-does not manage it and did not change it. Two things the team should decide:
-
-- Its default security group allows port 5432 from `0.0.0.0/0`, and the
-  instance is publicly accessible. Restrict the rule to known IPs, or stop the
-  instance once nobody needs it.
-- Data in it is not in the new database. The app's data comes from migrations
-  and seeds, so a fresh deploy needs no copy; move anything else with
-  `pg_dump`/`pg_restore` if it matters.
+never managed it. It was publicly accessible, and the default security group
+allowed port 5432 from `0.0.0.0/0`. With the team's agreement it was deleted
+on 2026-11-25 (no final snapshot; the app's data comes from migrations and
+seeds), and the open 5432 rule was removed from the default security group,
+which is back to AWS's default (traffic from its own members only).
 
 ## Secrets and IAM
 
@@ -152,9 +163,11 @@ does not manage it and did not change it. Two things the team should decide:
 
 ## Known findings (Trivy)
 
-`trivy config modules` reports, for the team's RDS in `modules/data`:
+`trivy config modules` reported, for the team's RDS in `modules/data`:
 backup retention, IAM database authentication, and deletion protection
-(MEDIUM). These are the optional hardening items in `AWS_PLAN.md` §1.3.
+(MEDIUM). Backups and deletion protection are on since 2026-11-25; IAM
+database authentication is not used (the API reads the password from
+Secrets Manager).
 Storage encryption is on (`storage_encrypted = true`); it was set before the
 first apply, so it replaced nothing. Changing it later would replace the
 database. The app security group's outbound
@@ -165,10 +178,13 @@ course setup).
 ## Cost and teardown
 
 Stop the instance between sessions; RDS can be stopped for up to 7 days. The
-Elastic IP is billed hourly. After grading, take a manual RDS snapshot if the
-data matters (`skip_final_snapshot = true`), then
-`terragrunt run --all -- destroy` (app, then data, then app-sg). Empty and
-delete the state bucket last.
+Elastic IP is billed hourly. The `budget` unit emails when spend passes $16
+(80% of $20) or the month's forecast passes $20. After grading, take a manual
+RDS snapshot if the data matters (`skip_final_snapshot = true`), set
+`deletion_protection = false` in `live/dev/data/terragrunt.hcl` and apply it
+(otherwise AWS refuses to delete the database), then
+`terragrunt run --all -- destroy` (app, then data, then app-sg; budget any
+time). Empty and delete the state bucket last.
 
 ## Variables worth customizing
 
@@ -178,3 +194,6 @@ delete the state bucket last.
 - `live/dev/app/terragrunt.hcl`: `instance_type`, `root_volume_gb`, `key_name`,
   `create_eip`, `enable_ssm`.
 - `live/dev/app-sg/terragrunt.hcl`: `ssh_cidr_blocks` (never `0.0.0.0/0`).
+- `live/dev/data/terragrunt.hcl`: `backup_retention_days` (1 on the free plan),
+  `deletion_protection`, `apply_immediately`.
+- `live/dev/budget/terragrunt.hcl`: `monthly_limit_usd`, `alert_emails`.
