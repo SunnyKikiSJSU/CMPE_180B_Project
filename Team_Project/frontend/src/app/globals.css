@@ -166,6 +166,45 @@ body {
 .progress-ring { width: 145px; height: 145px; display: grid; margin: 18px auto; place-items: center; border: 15px solid #ece7dc; border-top-color: #7c8a83; border-right-color: #b2a086; border-radius: 50%; transform: rotate(20deg); }
 .progress-ring span { color: #263238; font-family: Georgia, "Times New Roman", serif; font-size: 31px; transform: rotate(-20deg); }
 .progress-ring small { display: block; color: #948a7d; font-family: Arial, Helvetica, sans-serif; font-size: 10px; text-align: center; }
+.f5-create-panel { margin-bottom: 18px; padding: 18px 22px; }
+.inline-form { display: flex; align-items: end; flex-wrap: wrap; gap: 10px; }
+.inline-form label, .progress-row-controls label, .page-filter { display: grid; gap: 5px; color: #6f675d; font-size: 11px; font-weight: 700; }
+.inline-form input, .inline-form select, .progress-row-controls input, .progress-row-controls select, .page-filter select, .shelf-book-actions select { min-height: 36px; border: 1px solid #e0d9ce; border-radius: 8px; background: #fffdf9; padding: 0 10px; color: #263238; font-size: 13px; }
+.inline-form input { min-width: 220px; }
+.shelf-layout { display: grid; grid-template-columns: minmax(210px, .75fr) minmax(0, 1.6fr); gap: 18px; }
+.shelf-list { display: grid; gap: 7px; }
+.shelf-list-item { display: flex; width: 100%; align-items: center; justify-content: space-between; border: 1px solid transparent; border-radius: 10px; background: transparent; padding: 12px; color: #4c5654; text-align: left; }
+.shelf-list-item:hover, .shelf-list-item.is-selected { border-color: #d9cbb9; background: #f8f1e8; }
+.shelf-list-item span, .shelf-book-row > div:first-child { display: grid; gap: 4px; }
+.shelf-list-item strong, .shelf-book-row strong { font-family: Georgia, "Times New Roman", serif; font-size: 15px; font-weight: 500; }
+.shelf-list-item small, .shelf-book-row small, .dashboard-book-row small { color: #968b80; font-size: 11px; }
+.shelf-list-item b { color: #a06b4c; font-size: 13px; }
+.shelf-detail-panel, .shelf-list-panel, .progress-list-panel, .history-panel { min-width: 0; padding: 22px; }
+.shelf-actions { display: flex; gap: 10px; }
+.text-button.danger { color: #a44736; }
+.shelf-edit-form { margin: 12px 0 18px; padding: 12px; border: 1px solid #e7ded2; border-radius: 10px; background: #fbf7f1; }
+.shelf-book-list, .dashboard-shelf-list, .dashboard-book-list, .progress-list { display: grid; gap: 8px; }
+.shelf-book-row, .dashboard-shelf-row, .dashboard-book-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid #eee7de; padding: 13px 0; }
+.shelf-book-row:last-child, .dashboard-shelf-row:last-child, .dashboard-book-row:last-child { border-bottom: 0; }
+.shelf-book-row a, .dashboard-book-row { color: #4c5654; }
+.shelf-book-row a:hover, .dashboard-book-row:hover { color: #a06b4c; }
+.shelf-book-actions { display: flex; align-items: center; gap: 10px; }
+.progress-list-panel { margin-bottom: 18px; }
+.progress-row { border-bottom: 1px solid #eee7de; padding: 18px 0; }
+.progress-row:last-child { border-bottom: 0; }
+.progress-row-heading { display: flex; align-items: start; justify-content: space-between; gap: 15px; }
+.progress-row-heading > div { display: grid; gap: 4px; }
+.progress-row-heading a { color: #4c5654; }
+.progress-row-heading a:hover { color: #a06b4c; }
+.progress-row-heading > strong { color: #a06b4c; font-family: Georgia, "Times New Roman", serif; font-size: 18px; }
+.progress-row .progress-bar { margin-top: 11px; }
+.progress-row-controls { display: flex; align-items: end; flex-wrap: wrap; gap: 10px; margin-top: 13px; }
+.progress-row-controls label { min-width: 125px; }
+.progress-row-controls .button { min-height: 36px; }
+.page-filter { min-width: 150px; }
+.history-panel { margin-top: 18px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+@media (max-width: 760px) { .shelf-layout { grid-template-columns: 1fr; } .shelf-book-row { align-items: start; flex-direction: column; } .shelf-book-actions { width: 100%; justify-content: space-between; } .page-heading { gap: 16px; flex-direction: column; align-items: start; } }
 .center-note { margin: 0; color: #9a9186; font-size: 11px; text-align: center; }
 .text-link.centered { display: block; margin-top: 12px; text-align: center; }
 .discover-panel { margin-top: 16px; min-height: 280px; }
