@@ -19,10 +19,15 @@ services:
       # Required: the API refuses example values outside APP_ENV=local.
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (openssl rand -hex 32)}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      # Only the web tier calls the API, so the client address for the
+      # login and sign-up limits comes from X-Forwarded-For.
+      TRUST_PROXY: "true"
       OPENLIBRARY_USER_AGENT: ${OPENLIBRARY_USER_AGENT:-}
       OPENLIBRARY_URL: ${OPENLIBRARY_URL:-https://openlibrary.org}
+    # Host-only: dev.sh checks /readyz here; the internet reaches the API
+    # through Caddy and web only.
     ports:
-      - "${API_PORT:-8080}:8080"
+      - "127.0.0.1:${API_PORT:-8080}:8080"
     healthcheck:
       test:
         - CMD-SHELL

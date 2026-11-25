@@ -28,7 +28,11 @@ and is also sent in the `X-Request-ID` response header.
   `POST /api/auth/login`, where it means wrong credentials.
 - A wrong `currentPassword` on `PUT /api/users/me/password` is
   `400 VALIDATION_ERROR` with `details.field = "currentPassword"`, never `401`.
-- The API does not rate-limit clients.
+- Login and sign-up are rate-limited per client address: `POST /api/auth/login`
+  allows 10 attempts at once and then one every 6 seconds;
+  `POST /api/auth/register` allows 5 and then one a minute. Over the limit is
+  `429 RATE_LIMITED` with a `Retry-After` header (seconds) and
+  `details.retryAfterSeconds`. No other endpoint is limited.
 
 ## Codes
 
@@ -40,6 +44,7 @@ and is also sent in the `X-Request-ID` response header.
 | `NOT_FOUND` | 404 | Resource missing or owned by another user |
 | `CONFLICT` | 409 | Duplicate resource, duplicate review/rating, duplicate shelf name |
 | `STALE_VERSION` | 409 | `reading_progress.version` does not match the current row |
+| `RATE_LIMITED` | 429 | Too many login or sign-up attempts from one client; retry after `Retry-After` seconds |
 | `UPSTREAM_UNAVAILABLE` | 502 | Open Library failed, timed out, is rate limiting, or returned an unusable response |
 | `DATABASE_UNAVAILABLE` | 503 | The pool cannot reach PostgreSQL |
 | `INTERNAL` | 500 | Unexpected failure; details are logged, not returned |

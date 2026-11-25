@@ -41,6 +41,10 @@ type Config struct {
 
 	JWTSecret    []byte
 	CookieSecure bool
+	// TrustProxy reads the client address from X-Forwarded-For (for rate
+	// limits). Set it only when the API is reachable through the web tier
+	// alone, never directly from the internet.
+	TrustProxy bool
 
 	// OpenLibraryURL is the Open Library base URL (tests point it at a fake).
 	OpenLibraryURL string
@@ -94,6 +98,12 @@ func Load(lookup func(string) (string, bool)) (*Config, error) {
 		problems = append(problems, "COOKIE_SECURE must be true or false")
 	}
 	cfg.CookieSecure = cookieSecure
+
+	trustProxy, err := strconv.ParseBool(get("TRUST_PROXY", "false"))
+	if err != nil {
+		problems = append(problems, "TRUST_PROXY must be true or false")
+	}
+	cfg.TrustProxy = trustProxy
 
 	secret, _ := lookup("JWT_SECRET")
 	switch {
@@ -175,6 +185,7 @@ func (c *Config) LogSummary() {
 		"database_source", string(c.DatabaseSource),
 		"db_sslmode", c.DBSSLMode,
 		"cookie_secure", c.CookieSecure,
+		"trust_proxy", c.TrustProxy,
 		"openlibrary_url", c.OpenLibraryURL,
 		"openlibrary_user_agent_set", c.OpenLibraryUserAgent != DefaultOpenLibraryUserAgent,
 	)

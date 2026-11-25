@@ -349,6 +349,41 @@ func TestLogin(t *testing.T) {
 	}
 }
 
+func TestAuthRateLimits(t *testing.T) {
+	tokens := auth.NewTokens([]byte("router-test-secret-0123456789abcdef"))
+	authHandler := handlers.Auth{Service: &fakeAuth{}, Tokens: tokens}
+	ip := middleware.ClientIP(false)
+	h := harness{handler: New(Deps{
+		Auth:          authHandler,
+		Catalog:       handlers.Catalog{Service: &fakeCatalog{}},
+		Authn:         middleware.Authenticator{Tokens: tokens},
+		LoginLimit:    middleware.NewRateLimiter(2, time.Hour, ip),
+		RegisterLimit: middleware.NewRateLimiter(1, time.Hour, ip),
+	})}
+	wrong := `{"email":"reader@example.com","password":"nope"}`
+	for range 2 {
+		if rec := h.do("POST", "/api/auth/login", wrong, nil); rec.Code != 401 {
+			t.Fatalf("within the login limit: %d", rec.Code)
+		}
+	}
+	rec := h.do("POST", "/api/auth/login", `{"email":"reader@example.com","password":"right-password"}`, nil)
+	if rec.Code != 429 || errorCode(t, rec) != "RATE_LIMITED" || rec.Header().Get("Retry-After") == "" || len(rec.Result().Cookies()) != 0 {
+		t.Fatalf("over the login limit: %d", rec.Code)
+	}
+	// Each endpoint has its own budget, and other routes are not limited.
+	if rec := h.do("POST", "/api/auth/register", `{"email":"new@example.com","password":"long-enough","displayName":"New"}`, nil); rec.Code != 201 {
+		t.Fatalf("register has its own limit: %d", rec.Code)
+	}
+	if rec := h.do("POST", "/api/auth/register", `{"email":"new2@example.com","password":"long-enough","displayName":"New"}`, nil); rec.Code != 429 {
+		t.Fatalf("over the register limit: %d", rec.Code)
+	}
+	for range 3 {
+		if rec := h.do("GET", "/api/books", "", nil); rec.Code != 200 {
+			t.Fatalf("catalog is not limited: %d", rec.Code)
+		}
+	}
+}
+
 func TestProtectedRoutesRejectAnonymous(t *testing.T) {
 	h := newHarness(nil)
 	for _, route := range [][2]string{
