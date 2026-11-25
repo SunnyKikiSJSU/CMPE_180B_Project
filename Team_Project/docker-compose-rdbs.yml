@@ -34,6 +34,31 @@ services:
     networks:
       - book_net
 
+  # Next.js web tier: the only service the browser talks to. It serves the
+  # pages and forwards /api/* to the api container over the Compose network,
+  # so the session cookie stays on one origin (no CORS).
+  web:
+    build:
+      context: ./frontend
+      args:
+        API_PROXY_TARGET: http://api:8080
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -qO- http://127.0.0.1:3000/ >/dev/null || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - book_net
+
   postgres-client:
     image: postgres:18-alpine
     profiles:

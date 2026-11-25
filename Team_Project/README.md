@@ -240,9 +240,10 @@ To use Amazon RDS instead:
 ./scripts/dev.sh rds
 ```
 
-Both modes apply migrations and seed data before starting the API. They do not
-report success unless `/readyz` confirms an actual database connection. The
-frontend `web` container will be added after its Dockerfile is implemented.
+Both modes apply migrations and seed data, then build and start the API and
+the Next.js `web` container. They do not report success unless `/readyz`
+confirms an actual database connection; the web app is then at
+http://localhost:3000 (`WEB_PORT`).
 
 ## AWS Deployment
 
@@ -290,11 +291,11 @@ storage.
 - [x] Terraform database settings aligned with PostgreSQL 18.
 - [x] PostgreSQL Docker Compose environment and `.env.example`.
 - [x] API service in Compose (minimal Go server with `/healthz` and `/readyz`).
-- [ ] Web service in Compose (needs `frontend/Dockerfile`).
+- [x] Web service in Compose (`frontend/Dockerfile`, Next.js standalone output).
 - [x] Database schema, migrations (`000001`-`000008`), and seed data.
 - [x] API contract (`docs/api/openapi.yaml`), including Open Library search and import.
 - [x] Go API and authentication: auth, catalog, Open Library search and import, shelves and progress, reviews and ratings, and reports.
-- [ ] Next.js application.
+- [x] Next.js application (all pages on the API; manual UI checklist in `docs/evidence/ui-checklist.md`).
 - [ ] Validation, concurrency, and performance evidence (transaction and concurrency evidence and the query catalog are done; validation and performance are not).
 - [ ] AWS deployment.
 - [ ] S3-backed asset storage (post-MVP).

@@ -137,9 +137,9 @@ Maps to `BACKEND_PLAN.md` Phase 10 and `FRONTEND_PLAN.md` Phase F8.
 ### 4.1 Before deployment (in other plans)
 
 - [x] Backend Phases 2–7 complete (`/readyz` is a database ping).
-- [ ] `frontend/Dockerfile`, built with the argument
+- [x] `frontend/Dockerfile`, built with the argument
       `API_PROXY_TARGET=http://api:8080`, and a `web` service in
-      `docker-compose-rdbs.yml`.
+      `docker-compose-rdbs.yml` (F8, 2026-11-25).
 
 ### 4.2 Terraform additions (`infra/`)
 

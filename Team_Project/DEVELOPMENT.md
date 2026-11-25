@@ -183,7 +183,8 @@ The script performs these steps:
 3. Starts local PostgreSQL and waits for it to become healthy.
 4. Applies database migrations.
 5. Loads the seed data.
-6. Builds and starts the Go API container.
+6. Builds and starts the Go API container and the Next.js `web` container
+   (`frontend/Dockerfile`; the first build takes a few minutes).
 7. Waits for `/readyz` to confirm a real database connection.
 
 Successful output includes:
@@ -193,7 +194,14 @@ Backend is ready.
 Target:   local
 Ready:    http://127.0.0.1:8080/readyz
 Response: {"database":"connected","status":"ready"}
+Web app:  http://localhost:3000
 ```
+
+Open http://localhost:3000 and sign in with a seed account
+(`reader1@example.com` / `Password123!`). The browser talks only to `web`; it
+forwards `/api/*` to `http://api:8080` on the Compose network. That address is
+fixed when the image is built (`API_PROXY_TARGET` build argument), so rebuild
+`web` after changing it.
 
 ## Start With Amazon RDS
 
@@ -211,7 +219,7 @@ The script performs these steps:
 4. Percent-encodes the database credentials for the migration URL.
 5. Applies migrations to RDS.
 6. Loads the seed data.
-7. Builds and starts the RDS-backed Go API container.
+7. Builds and starts the RDS-backed Go API container and the `web` container.
 8. Waits for `/readyz` to confirm the API can query RDS.
 
 Successful output includes:
