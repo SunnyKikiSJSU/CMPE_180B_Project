@@ -622,7 +622,8 @@ Checks before a demo: `npm run lint`, `npm run typecheck`, `npm test`,
 - [x] Add Vitest (and optionally Playwright)
 - [x] Delete unused `Navbar`, `HeroSection`, `Footer`, `ShelvesSection`,
       `DiscoverySection` (or adopt them intentionally)
-- [ ] Remove `mock-data.ts` from runtime; keep only as a test fixture if useful
+- [x] Remove `mock-data.ts` from runtime; keep only as a test fixture if useful
+      (deleted; no test used it)
 - [ ] Add `next.config.ts` `images.remotePatterns` if `next/image` is adopted
 - [x] Refresh `frontend/README.md` (currently says the UI is a "starter")
 
@@ -844,9 +845,11 @@ Review fixes:
 - [x] Public mobile drawer
 - [x] Featured books from the API instead of `mock-data`; `BookCarousel` empty
       guard (team commit `036df39`)
-- [ ] Footer line "Book information from Google Books"
+- [x] Footer line "Book information from Open Library" (was Google Books
+      before 2026-11-23)
 - [ ] Loading/empty/error/unauthorized states on every route
-- [ ] Accessibility pass (focus, labels, dialogs, contrast)
+- [x] Accessibility pass (focus, labels, dialogs, contrast) on every page with
+      real data; repeat for authors, reviews, reports, and settings after F6
 - [ ] Responsive QA at 360/768/1280 px
 - [ ] Empty-state copy consistency
 

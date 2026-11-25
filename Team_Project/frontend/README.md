@@ -40,10 +40,9 @@ Connected to the API so far (FRONTEND_PLAN.md phases F0-F2):
   schema the UI uses), `lib/query-keys.ts`, `lib/format.ts`, and the TanStack
   Query provider (no retry on 4xx; a query's 401 re-checks the session).
 
-The workspace pages still show empty states, and the public home carousel uses
-`src/data/mock-data.ts`. The remaining work (catalog, Open Library search and
-import, book detail, shelves, progress, reviews, reports) is planned in
-[`../FRONTEND_PLAN.md`](../FRONTEND_PLAN.md).
+The public home carousel shows popular books from the API; no page uses mock
+data. The remaining work (reviews, reports, authors, settings, and polish) is
+planned in [`../FRONTEND_PLAN.md`](../FRONTEND_PLAN.md).
 
 ## Checks
 

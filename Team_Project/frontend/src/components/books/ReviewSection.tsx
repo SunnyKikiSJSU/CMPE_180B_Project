@@ -132,7 +132,7 @@ function ReviewBody({ review, author, rating }: { review: Review; author: string
     <>
       <header>
         <strong>{author}</strong>
-        {rating ? <span className="review-stars" aria-label={`${rating} of 5 stars`}>{"★".repeat(rating)}<span aria-hidden="true">{"★".repeat(5 - rating)}</span></span> : null}
+        {rating ? <span className="review-stars" role="img" aria-label={`${rating} of 5 stars`}>{"★".repeat(rating)}<span aria-hidden="true">{"★".repeat(5 - rating)}</span></span> : null}
         <time dateTime={review.createdAt}>{formatDate(review.createdAt)}</time>
       </header>
       {review.title && <h3>{review.title}</h3>}

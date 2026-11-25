@@ -94,7 +94,7 @@ function OpenLibraryTab({ state }: { state: CatalogState }) {
           <span className="empty-state-icon" aria-hidden="true">⌕</span>
           <h3>Search millions of books</h3>
           <p>Results come from Open Library. Add one to the library to shelve, track, rate, and review it.</p>
-          <div className="suggestion-chips" aria-label="Try a search">
+          <div className="suggestion-chips" role="group" aria-label="Try a search">
             {suggestions.map(({ label, ...terms }) => <Link key={label} href={catalogHref({ tab: "openlibrary", ...terms })}>{label}</Link>)}
           </div>
           <Link className="text-link" href={catalogHref({ tab: "library" })}>Or browse the books already in the library →</Link>
