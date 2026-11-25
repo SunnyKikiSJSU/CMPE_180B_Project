@@ -18,4 +18,8 @@ Current and planned sections:
     completion, committed and rolled back (Phase 5).
   - [`validation.md`](evidence/validation.md): 34 database validation cases
     with expected and actual results (Phase 9).
+  - [`concurrency.md`](evidence/concurrency.md): multi-session races (rating
+    summary at two isolation levels, duplicate review, stale progress).
+  - [`performance.md`](evidence/performance.md): five index optimizations
+    with before/after plans and timings, and where indexes did not help.
 - `architecture/` for architecture diagrams and design decisions.

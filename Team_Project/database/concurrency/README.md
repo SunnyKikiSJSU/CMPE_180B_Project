@@ -8,6 +8,7 @@ state. Results and explanations: [`docs/evidence/concurrency.md`](../../docs/evi
 | --- | --- |
 | `rating_summary_race.sh` | Two users rate one book at the same time (`READ COMMITTED`), then the same race with the second session at `REPEATABLE READ` |
 | `duplicate_review_race.sh` | One user submits the same review from two sessions |
+| `stale_progress_race.sh` | One reader saves progress from two tabs with the same version while one tab finishes the book |
 | `_lib.sh` | Shared helpers (sourced, not run) |
 
 Run against a migrated database (`000001`-`000007`); seeds are not needed:
