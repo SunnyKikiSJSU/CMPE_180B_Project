@@ -1936,9 +1936,10 @@ each frontend phase to the backend phase it needs.
 - [x] Five index optimizations with before/after plans and timings
       (`docs/evidence/performance.md`: 7x-190x faster; also four cases where
       an index does not help, with the reason).
-- [ ] `go test ./...`, the SQL test suites, frontend lint/typecheck/build,
-      `terraform validate`.
-- [ ] Evidence files linked from `docs/README.md`.
+- [x] `go test ./...`, the SQL test suites, frontend lint/typecheck/build,
+      `terraform validate` (`docs/evidence/quality-gates.md`, 2026-11-25).
+- [x] Evidence files linked from `docs/README.md`, plus the schema dictionary
+      (`docs/database/schema-dictionary.md`).
 
 **Exit:** Every required database behavior is reproducible from scripts and
 documented with actual output.
@@ -2005,7 +2006,7 @@ The project is complete when:
 - [x] Twenty or more validation cases pass reproducibly.
 - [x] Three transaction and three concurrency demonstrations are documented.
 - [ ] The frontend uses the API for every workspace page.
-- [ ] `go test ./...`, the SQL test suites, lint, typecheck, and build pass.
+- [x] `go test ./...`, the SQL test suites, lint, typecheck, and build pass.
 - [ ] The deployed application uses RDS for every core operation.
 - [ ] `docs/api`, `docs/database`, `docs/evidence`, and `docs/runbooks` are
       populated and linked from the README.

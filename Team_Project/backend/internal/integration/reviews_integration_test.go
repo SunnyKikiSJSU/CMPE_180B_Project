@@ -37,11 +37,11 @@ type rating struct {
 }
 
 type review struct {
-	ID     uuid.UUID
-	BookID uuid.UUID
-	UserID uuid.UUID
-	Title  *string
-	Body   string
+	ID        uuid.UUID
+	BookID    uuid.UUID
+	UserID    uuid.UUID
+	Title     *string
+	Body      string
 	Rating    *int
 	User      *struct{ DisplayName string }
 	BookTitle string
