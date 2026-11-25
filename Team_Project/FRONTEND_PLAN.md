@@ -872,6 +872,28 @@ Notes:
   query cache; clearing the cache first would make `AuthBoundary` redirect to
   `/login` before the navigation.
 
+Review and merge with `main` (2026-11-25, branch `feat/frontend-f6`): merged
+#16/#17 (conflicts in `AppShell.tsx`, `DashboardView.tsx`, `use-dashboard.ts`,
+`query-keys.ts`: kept the drawer menu with F6's `/categories` highlighting, the
+paginated "currently reading" list with F6's shared user-stats query). Go unit
+and integration tests pass on a seeded database (all four seed files,
+including `001_smoke_test.sql`, which `TestPublicReportsOnSeedData` needs).
+Fixes from review and browser testing:
+
+- **Authors ↔ Categories tab switch** showed the previous list for a moment
+  (`keepPreviousData` across query keys), so author names appeared under
+  Categories and linked to `/categories/<authorId>` (404). Previous data is now
+  kept only while paging the same list.
+- **Settings counts** (shelves, finished, reviews, ratings) did not refresh
+  after review, rating, shelf, or progress changes for 30 s; those mutations now
+  also invalidate `["users","me"]`.
+- Re-checked in a browser: rating and editing on `/reviews` (Settings shows the
+  new count at once), delete; every report tab; author and category detail;
+  profile save (header name updates), a `javascript:` avatar rejected, wrong
+  and correct current password, account deletion (old login then fails); and
+  all F6 pages at 360/768/1280 px (the ranking tables scroll inside their own
+  box on phones). This completes the F7 follow-up for these pages.
+
 ### Phase F7 — Public pages and polish
 
 - [x] Public home hero, carousel, mood grid, footer

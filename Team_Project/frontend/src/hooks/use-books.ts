@@ -55,7 +55,8 @@ export function useNameList(kind: "authors" | "categories", filters: NameSearch)
   return useQuery({
     queryKey: kind === "authors" ? queryKeys.authors(filters) : queryKeys.categories(filters),
     queryFn: () => (kind === "authors" ? bookService.listAuthors(filters) : bookService.listCategories(filters)),
-    placeholderData: keepPreviousData,
+    // Keep the old page only while paging the same list; never show authors under the Categories tab.
+    placeholderData: (previous, query) => (query?.queryKey[0] === kind ? previous : undefined),
   });
 }
 

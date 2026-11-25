@@ -10,7 +10,7 @@ import type { Book, ProgressUpdateRequest, ReadingProgress, Shelf, ShelfBookResu
 
 /** Everything a status, progress, or shelf change can affect. */
 function refreshReading(client: QueryClient, bookId: string) {
-  for (const queryKey of [queryKeys.books.detail(bookId), queryKeys.progress.all, queryKeys.shelves.all, queryKeys.history, ["reports"]]) {
+  for (const queryKey of [queryKeys.books.detail(bookId), queryKeys.progress.all, queryKeys.shelves.all, queryKeys.history, queryKeys.profile, ["reports"]]) {
     void client.invalidateQueries({ queryKey });
   }
 }
@@ -36,7 +36,7 @@ export function useShelfBooks(shelfId: string | undefined, page = 1) {
 
 /** Shelf changes can create, move, or delete progress, so book pages and lists refresh too. */
 function refreshShelves(client: QueryClient) {
-  for (const queryKey of [queryKeys.shelves.all, queryKeys.progress.all, queryKeys.history, queryKeys.books.all, ["reports"]]) {
+  for (const queryKey of [queryKeys.shelves.all, queryKeys.progress.all, queryKeys.history, queryKeys.books.all, queryKeys.profile, ["reports"]]) {
     void client.invalidateQueries({ queryKey });
   }
 }

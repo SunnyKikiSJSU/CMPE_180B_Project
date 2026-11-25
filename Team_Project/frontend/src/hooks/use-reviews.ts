@@ -11,7 +11,7 @@ export const MY_LIST_PAGE_SIZE = 10;
 
 /** Ratings and reviews change the book's summary, every list showing it, and the reader's own lists. */
 function refreshReviews(client: QueryClient) {
-  for (const queryKey of [queryKeys.books.all, queryKeys.myReviews, queryKeys.myRatings, ["reports"]]) {
+  for (const queryKey of [queryKeys.books.all, queryKeys.myReviews, queryKeys.myRatings, queryKeys.profile, ["reports"]]) {
     void client.invalidateQueries({ queryKey });
   }
 }
