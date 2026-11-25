@@ -15,7 +15,7 @@ infra/
 ├── modules/
 │   ├── data/                   # The team's RDS tier, unchanged: RDS PostgreSQL 18, DB security group,
 │   │                           # random password, Secrets Manager secret, backend IAM role + instance profile
-│   ├── app_security_group/     # App security group: in HTTP 80 (+ SSH from listed CIDRs); out 443, 80, 5432 to the VPC
+│   ├── app_security_group/     # App security group: in HTTP 80 and HTTPS 443 (+ SSH from listed CIDRs); out 443, 80, 5432 to the VPC
 │   └── app/                    # EC2 (Amazon Linux 2023, Docker + Compose), optional Elastic IP, Session Manager
 └── live/
     └── dev/
@@ -97,7 +97,7 @@ follow-up `terragrunt run --all -- plan` reports no changes.
 
 | Unit | Created |
 | --- | --- |
-| `app-sg` | `cmpe180b-team-project-app-sg`: in 80 from anywhere; out 443/80 to anywhere and 5432 to the VPC |
+| `app-sg` | `cmpe180b-team-project-app-sg`: in 80 and 443 from anywhere; out 443/80 to anywhere and 5432 to the VPC |
 | `data` | RDS `cmpe180b-team-project-db` (PostgreSQL 18.3, `db.t4g.micro`, 20 GB gp3, **encrypted**, private, database `appdb`, user `appadmin`); security group allowing 5432 only from the app security group; secret `cmpe180b-team-project/db-credentials`; role and instance profile `cmpe180b-team-project-backend-*` |
 | `app` | EC2 `t3.small` (Amazon Linux 2023, Docker 25, Compose v5.8.0, Buildx v0.39.1) with an Elastic IP; Session Manager enabled, SSH closed |
 
@@ -107,6 +107,10 @@ Values for `.env` and the deploy (`terragrunt output` in each unit):
 Checked after apply: the instance passes status checks and is online in
 Session Manager; its role can read the database secret and nothing else
 (`ListSecrets` is denied).
+
+2026-11-25: inbound 443 added to `app-sg` for HTTPS (Caddy on the instance),
+and the app deployed: https://3-136-227-184.sslip.io
+([`docs/evidence/deployment.md`](../docs/evidence/deployment.md)).
 
 There was no Terraform state to migrate. The earlier `infra/*.tf` had no
 backend block, and nothing they define existed in the account. The database
