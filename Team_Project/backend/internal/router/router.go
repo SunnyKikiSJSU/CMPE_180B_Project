@@ -23,6 +23,10 @@ type Deps struct {
 	Reports  handlers.Reports
 	External handlers.External
 	Authn    middleware.Authenticator
+	// Per-client limits on password guessing and sign-up spam; nil means
+	// no limit (tests).
+	LoginLimit    *middleware.RateLimiter
+	RegisterLimit *middleware.RateLimiter
 }
 
 func New(d Deps) http.Handler {
@@ -63,8 +67,8 @@ func New(d Deps) http.Handler {
 
 		api.Group(func(open chi.Router) {
 			open.Use(middleware.NoStore)
-			open.Post("/auth/register", d.Auth.Register)
-			open.Post("/auth/login", d.Auth.Login)
+			open.With(d.RegisterLimit.Limit).Post("/auth/register", d.Auth.Register)
+			open.With(d.LoginLimit.Limit).Post("/auth/login", d.Auth.Login)
 		})
 
 		// Everything below needs a session; personal data is never cached.

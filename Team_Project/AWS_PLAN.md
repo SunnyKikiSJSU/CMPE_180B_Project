@@ -122,8 +122,9 @@ Why EC2 and not ECS Fargate:
 - One instance is cheaper and quicker to set up. Check current pricing and the
   account's free-tier or credit status before choosing the instance size.
 - Logs are `docker compose logs`, and you can SSH in during the demo.
-- The API's port 8080 is published on the instance because `./scripts/dev.sh`
-  checks `http://127.0.0.1:8080/readyz`. The security group opens only ports
+- The API's port 8080 is published on the instance's loopback address only
+  (`127.0.0.1:8080`) because `./scripts/dev.sh` checks
+  `http://127.0.0.1:8080/readyz`. The security group opens only ports
   80 and 443 (and 22 for SSH from listed CIDRs, none by default), so 8080 and
   3000 are not reachable from the internet (checked 2026-11-25).
 

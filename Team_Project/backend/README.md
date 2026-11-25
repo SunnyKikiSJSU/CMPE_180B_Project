@@ -93,6 +93,7 @@ Shelves and progress notes:
 | `DB_SECRET_ARN` | Secrets Manager secret from `infra/` (`terraform output -raw db_secret_arn`). Read once at startup with the default AWS credential chain (on EC2, the instance profile); `DB_SSLMODE` defaults to `require`. Region from `AWS_REGION` or the ARN |
 | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_SSLMODE` | Used when neither of the above is set; `DB_PASSWORD` is required |
 | `PORT`, `APP_ENV`, `COOKIE_SECURE`, `OPENLIBRARY_USER_AGENT`, `OPENLIBRARY_URL` | See `.env.example` |
+| `TRUST_PROXY` | `true` takes the client address for the login and sign-up limits from `X-Forwarded-For` (set by Caddy, passed on by Next.js). Default `false`; the Compose files set `true`. Never set it when clients can reach the API directly |
 
 The startup log records which database source was used, never the values.
 

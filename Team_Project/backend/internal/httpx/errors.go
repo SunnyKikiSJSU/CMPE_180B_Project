@@ -32,6 +32,7 @@ var statusByKind = map[domain.Kind]int{
 	domain.KindNotFound:        http.StatusNotFound,
 	domain.KindConflict:        http.StatusConflict,
 	domain.KindStaleVersion:    http.StatusConflict,
+	domain.KindRateLimited:     http.StatusTooManyRequests,
 	domain.KindUpstream:        http.StatusBadGateway,
 	domain.KindDatabase:        http.StatusServiceUnavailable,
 	domain.KindInternal:        http.StatusInternalServerError,

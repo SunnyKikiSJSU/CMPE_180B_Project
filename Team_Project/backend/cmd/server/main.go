@@ -62,6 +62,7 @@ func run() error {
 	tokens := auth.NewTokens(cfg.JWTSecret)
 	users := repository.NewUsers(pool)
 	authHandler := handlers.Auth{Service: services.NewAuth(users), Tokens: tokens, CookieSecure: cfg.CookieSecure}
+	clientIP := middleware.ClientIP(cfg.TrustProxy)
 
 	server := &http.Server{
 		Addr: ":" + strconv.Itoa(cfg.Port),
@@ -75,6 +76,10 @@ func run() error {
 			Reports:  handlers.Reports{Service: services.NewReports(repository.NewReports(pool))},
 			External: handlers.External{Service: services.NewExternal(openlibrary.New(cfg.OpenLibraryURL, cfg.OpenLibraryUserAgent), repository.NewCatalog(pool))},
 			Authn:    middleware.Authenticator{Tokens: tokens},
+			// 10 tries at once, then one every 6 seconds (10 a minute).
+			LoginLimit: middleware.NewRateLimiter(10, 6*time.Second, clientIP),
+			// 5 sign-ups at once, then one a minute.
+			RegisterLimit: middleware.NewRateLimiter(5, time.Minute, clientIP),
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,

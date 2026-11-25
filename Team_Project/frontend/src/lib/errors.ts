@@ -7,6 +7,7 @@ export type ErrorCode =
   | "NOT_FOUND"
   | "CONFLICT"
   | "STALE_VERSION"
+  | "RATE_LIMITED"
   | "UPSTREAM_UNAVAILABLE"
   | "DATABASE_UNAVAILABLE"
   | "INTERNAL"
@@ -45,6 +46,7 @@ const fallbackMessages: Record<string, string> = {
   NOT_FOUND: "We could not find that.",
   CONFLICT: "That already exists.",
   STALE_VERSION: "This changed in another tab or device. Reload to see the latest version.",
+  RATE_LIMITED: "Too many attempts. Wait a moment and try again.",
   UPSTREAM_UNAVAILABLE: "The book search service is not responding. Try again in a moment.",
   DATABASE_UNAVAILABLE: "The library is temporarily unavailable. Try again in a moment.",
   NETWORK_ERROR: "Cannot reach the server. Check your connection and try again.",

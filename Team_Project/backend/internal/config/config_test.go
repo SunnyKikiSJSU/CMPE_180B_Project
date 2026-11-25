@@ -54,6 +54,7 @@ func TestLoadRejects(t *testing.T) {
 		"bad sslmode":                      {"JWT_SECRET": "s", "DB_PASSWORD": "x", "DB_SSLMODE": "on"},
 		"bad secret ARN":                   {"JWT_SECRET": "s", "DB_SECRET_ARN": "my-secret"},
 		"bad cookie flag":                  {"JWT_SECRET": "s", "DB_PASSWORD": "x", "COOKIE_SECURE": "yes please"},
+		"bad trust proxy flag":             {"JWT_SECRET": "s", "DB_PASSWORD": "x", "TRUST_PROXY": "maybe"},
 		"bad Open Library URL":             {"JWT_SECRET": "s", "DB_PASSWORD": "x", "OPENLIBRARY_URL": "ftp://openlibrary.org"},
 	}
 	for name, values := range cases {

@@ -127,6 +127,8 @@ paths:
           $ref: "#/components/responses/ValidationError"
         "409":
           $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
 
   /api/auth/login:
     post:
@@ -150,6 +152,8 @@ paths:
           $ref: "#/components/responses/ValidationError"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
 
   /api/auth/logout:
     post:
@@ -1590,6 +1594,17 @@ components:
             $ref: "#/components/schemas/ErrorEnvelope"
     Conflict:
       description: Duplicate resource or stale version.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    RateLimited:
+      description: Too many attempts from this client (RATE_LIMITED). Login allows 10 at once, then one every 6 seconds; register allows 5, then one a minute.
+      headers:
+        Retry-After:
+          description: Seconds until the next attempt is allowed.
+          schema:
+            type: integer
       content:
         application/json:
           schema:

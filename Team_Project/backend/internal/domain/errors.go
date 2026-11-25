@@ -17,6 +17,7 @@ const (
 	KindNotFound        Kind = "NOT_FOUND"
 	KindConflict        Kind = "CONFLICT"
 	KindStaleVersion    Kind = "STALE_VERSION"
+	KindRateLimited     Kind = "RATE_LIMITED"
 	KindUpstream        Kind = "UPSTREAM_UNAVAILABLE"
 	KindDatabase        Kind = "DATABASE_UNAVAILABLE"
 	KindInternal        Kind = "INTERNAL"

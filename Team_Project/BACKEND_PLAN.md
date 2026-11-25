@@ -79,8 +79,9 @@ work.
     `books.google_books_id` for deduplication and is never used as a key.
     Library search (`GET /api/books`) keeps the PostgreSQL full-text search
     for books already in the database. See Section 6.4.
-12. **Course-project scope.** The API has no rate limiter, no CORS layer, and
-    no cache. The browser only talks to the Next.js app, which forwards
+12. **Course-project scope.** The API has no CORS layer and no cache. Its
+    only rate limits are per-client limits on login and sign-up (Section 8).
+    The browser only talks to the Next.js app, which forwards
     `/api/*` to the Go API (same origin, so the session cookie works without
     CORS). Application secrets live in the gitignored `.env`. The database
     credentials may instead come from the team's Secrets Manager secret:
@@ -1072,6 +1073,7 @@ import command: Google content enters a database only through
 | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_SSLMODE` | existing defaults | `DB_PASSWORD` required |
 | `JWT_SECRET` | — | must be set and non-empty; the process exits if it is missing |
 | `COOKIE_SECURE` | `false` | boolean; `true` only when the site is served over HTTPS |
+| `TRUST_PROXY` | `false` | boolean; `true` reads the client address for the login and sign-up limits from `X-Forwarded-For`. Both Compose files set it because only the web tier reaches the API |
 | `GOOGLE_BOOKS_API_KEY` | empty | server-side only; empty uses Google's small anonymous quota and logs a startup warning |
 | `GOOGLE_BOOKS_COUNTRY` | `US` | ISO 3166-1 alpha-2; sent as `country=` to avoid `403 unknownLocation` on cloud hosts |
 
@@ -1365,6 +1367,11 @@ guard.
   hand-written function calls use `$1`-style arguments.
 - Set `Cache-Control: no-store` on auth and personal data responses.
 - Log failed logins without logging credentials.
+- Limit password guessing and sign-up spam per client address:
+  `POST /api/auth/login` allows 10 attempts at once, then one every 6
+  seconds; `POST /api/auth/register` allows 5, then one a minute. Over the
+  limit is `429 RATE_LIMITED` with `Retry-After`. Buckets live in memory
+  (one API instance) and the table is capped at 10,000 clients.
 - Cookie `Secure` when served over HTTPS (`COOKIE_SECURE`); `SameSite=Lax`; no token in URLs.
 - Graceful shutdown: drain HTTP, close the pool, log the reason.
 - Request IDs propagate to logs and error responses.
