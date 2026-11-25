@@ -12,17 +12,19 @@ export const queryKeys = {
   external: (filters: object) => ["external", "openlibrary", filters] as const,
   shelves: {
     all: ["shelves"] as const,
-    books: (id: string) => ["shelves", id, "books"] as const,
+    books: (id: string, page?: number) => (page ? (["shelves", id, "books", page] as const) : (["shelves", id, "books"] as const)),
     contains: (shelfId: string, bookId: string) => ["shelves", shelfId, "contains", bookId] as const,
   },
   progress: {
     all: ["progress"] as const,
     detail: (bookId: string) => ["progress", bookId] as const,
+    list: (filters: object) => ["progress", "list", filters] as const,
   },
   history: ["history"] as const,
   historyFor: (bookId: string) => ["history", bookId] as const,
   /** GET /api/users/me: the user with profile and stats (settings). */
   profile: ["users", "me"] as const,
+  historyRecent: (limit: number) => ["history", "recent", limit] as const,
   myReviews: ["reviews", "me"] as const,
   myReviewsPage: (page: number) => ["reviews", "me", "page", page] as const,
   myReviewFor: (bookId: string) => ["reviews", "me", "book", bookId] as const,

@@ -61,7 +61,7 @@ export function ExploreView() {
           <label className="search-field"><span aria-hidden="true">⌕</span><input name="q" defaultValue={q} placeholder="Search by title, author, or keyword…" aria-label="Search books" maxLength={200} /></label>
           <button className="button button-primary" type="submit">Search</button>
         </form>
-        <div className="suggestion-chips explore-moods" aria-label="Browse by mood">
+        <div className="suggestion-chips explore-moods" role="group" aria-label="Browse by mood">
           {Object.keys(moodSubjects).map((name) => <Link key={name} href={exploreHref(q, mood === name ? "" : name)} aria-current={mood === name ? "true" : undefined}>{name}</Link>)}
         </div>
         {q || mood ? (

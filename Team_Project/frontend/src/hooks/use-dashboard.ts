@@ -10,9 +10,10 @@ export function useDashboardData() {
   // Shares the cache entry of /reports. Its data is { data, queryId }, so the
   // dashboard reads stats.data.data.
   const stats = useUserStats();
-  const progress = useQuery({ queryKey: queryKeys.progress.all, queryFn: readingService.listProgress });
+  const reading = { status: "reading", pageSize: 3 } as const;
+  const progress = useQuery({ queryKey: queryKeys.progress.list(reading), queryFn: () => readingService.listProgress(reading) });
   const shelves = useQuery({ queryKey: queryKeys.shelves.all, queryFn: readingService.listShelves });
-  const history = useQuery({ queryKey: queryKeys.history, queryFn: () => readingService.history({ limit: 5 }) });
+  const history = useQuery({ queryKey: queryKeys.historyRecent(5), queryFn: () => readingService.history({ limit: 5 }) });
 
   const queries = [stats, progress, shelves, history];
   return {
