@@ -51,5 +51,5 @@ export function ExternalBookCard({ book, action }: { book: ExternalBook; action:
 
 /** Dims the previous results while the next page or search loads. */
 export function BookGrid({ children, busy = false, label }: { children: ReactNode; busy?: boolean; label: string }) {
-  return <div className={`book-grid${busy ? " is-busy" : ""}`} aria-busy={busy} aria-label={label}>{children}</div>;
+  return <div className={`book-grid${busy ? " is-busy" : ""}`} role="group" aria-busy={busy} aria-label={label}>{children}</div>;
 }
