@@ -816,7 +816,8 @@ with the arrow keys; posting, editing, and deleting a review with its rating
 - [x] Footer line "Book information from Open Library" (was Google Books
       before 2026-11-23)
 - [ ] Loading/empty/error/unauthorized states on every route
-- [ ] Accessibility pass (focus, labels, dialogs, contrast)
+- [x] Accessibility pass (focus, labels, dialogs, contrast) on every page with
+      real data; repeat for authors, reviews, reports, and settings after F6
 - [ ] Responsive QA at 360/768/1280 px
 - [ ] Empty-state copy consistency
 
