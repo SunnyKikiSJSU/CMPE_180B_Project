@@ -16,4 +16,6 @@ Current and planned sections:
 - `evidence/` for validation, concurrency, and performance results.
   - [`transactions.md`](evidence/transactions.md): shelf move and progress
     completion, committed and rolled back (Phase 5).
+  - [`validation.md`](evidence/validation.md): 34 database validation cases
+    with expected and actual results (Phase 9).
 - `architecture/` for architecture diagrams and design decisions.
