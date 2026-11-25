@@ -847,13 +847,37 @@ Review fixes:
       guard (team commit `036df39`)
 - [x] Footer line "Book information from Open Library" (was Google Books
       before 2026-11-23)
-- [ ] Loading/empty/error/unauthorized states on every route
+- [x] Loading/empty/error/unauthorized states on every route
 - [x] Accessibility pass (focus, labels, dialogs, contrast) on every page with
       real data; repeat for authors, reviews, reports, and settings after F6
-- [ ] Responsive QA at 360/768/1280 px
-- [ ] Empty-state copy consistency
+- [x] Responsive QA at 360/768/1280 px
+- [x] Empty-state copy consistency
 
 **Exit:** public and workspace pages feel complete and fail gracefully.
+
+Part 1 by Cristian (#15: drawer menus, contrast, focus, screen-reader labels,
+`/explore` loading fallback, Open Library footer, `mock-data.ts` removed).
+Part 2 done 2026-11-25 (branch `feat/frontend-f7-finish`, which includes #15
+and the F5 fixes in #16). Checked in a browser against the Go API and
+PostgreSQL with seeds:
+
+- **Responsive:** every route (public, signed-in, a missing book, an unknown
+  URL) at 360, 768, and 1280 px has no horizontal scroll. Fixed: the catalog's
+  "More filters" fields overlapped at 768 px (fixed-width inputs in four
+  columns); they now fill two columns below 1100 px.
+- **Fail gracefully:** a branded `not-found.tsx` (status stays 404) and a root
+  `error.tsx` for unexpected rendering errors (fixed message, retry, no error
+  text). With the API stopped: the workspace shows the "could not reach your
+  library" card, explore shows its error with retry, and the home hero falls
+  back to its invitation card instead of an error (§5.6).
+- **Menus:** the phone drawer opens with focus inside, Esc closes it and
+  returns focus to ☰, and a link navigates and closes it. On short screens
+  (375 × 560) the workspace drawer's links ran past the panel; it now scrolls
+  inside its own panel (found in review).
+- **Empty states** use sentence-case titles with one next step; no changes
+  needed.
+- The authors, reviews, reports, and settings pages are still F6 placeholders
+  (Sunny's `sunny` branch); repeat this check on them when F6 merges.
 
 ### Phase F8 — Quality gates and deployment
 
