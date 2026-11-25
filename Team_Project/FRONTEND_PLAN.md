@@ -787,13 +787,45 @@ with the arrow keys; posting, editing, and deleting a review with its rating
 ### Phase F5 — Shelves and progress
 
 - [x] Page shells and empty states
-- [ ] Shelf list/create/rename/delete
-- [ ] Shelf books list, add/move/remove
-- [ ] Status-shelf protections in the UI
-- [ ] Progress list/update; `STALE_VERSION` recovery
-- [ ] Reading history list
+- [x] Shelf list/create/rename/delete
+- [x] Shelf books list, add/move/remove
+- [x] Status-shelf protections in the UI
+- [x] Progress list/update; `STALE_VERSION` recovery
+- [x] Reading history list
 
 **Exit:** shelf and progress flows pass manually against the API.
+
+Built by the team (commit `036df39`, 2026-11-24, also the dashboard and API
+featured books); review fixes on branch `fix/frontend-f5-review`. Checked in a
+browser against the Go API and PostgreSQL with seeds plus 15 extra books in
+progress for reader1: create, rename (duplicate name is a field error), and
+delete a custom shelf; status shelves have no rename/delete; moves between
+status shelves, between custom shelves, and status → custom; remove with
+confirmation; progress paging (24 books, 20 + 4) and the status filter; a
+stale version from a second client (curl) keeps the message and loads the
+latest page; the dashboard's currently-reading list; 390 px wide screens.
+Review fixes:
+
+- `GET /api/reading-progress` is paginated (20 by default), so the progress
+  page showed only 20 books and the dashboard picked "currently reading" from
+  those 20. Both now page and filter by status on the server.
+- The progress row was keyed by `version` with the mutation inside it, so a
+  409 remounted the row and the STALE_VERSION message disappeared (the
+  reader's number was silently replaced). Same structure as the book page now:
+  the mutation is held by the row, the form is keyed by version.
+- A status shelf is a reading status, so removing a book from it deletes its
+  progress (`RemoveBook`); that now asks first, as on the book page. Shelf
+  delete uses the same inline confirmation instead of `window.confirm`.
+- "Move to…" from a status shelf to a custom shelf only adds the custom shelf
+  (`MoveBook` keeps one status per book). The menu groups targets as
+  "Reading status" and "Also add to" / "Custom shelves" so the result matches.
+- Shelf changes also refresh book pages (`myProgress`, `version`), so the next
+  save on a book page does not hit a false STALE_VERSION.
+- Shelf books are paged (20) instead of the first 100 only; switching shelves
+  resets paging, the rename form, and old errors.
+- Deleting a shelf removes it from the cached list first, so its books are not
+  refetched (a 404 in the console).
+- `.DS_Store` was tracked at the repository root; it is now ignored.
 
 ### Phase F6 — Reviews, ratings, reports, authors, settings
 
@@ -812,7 +844,7 @@ with the arrow keys; posting, editing, and deleting a review with its rating
 - [x] Public home hero, carousel, mood grid, footer
 - [x] Public mobile drawer
 - [x] Featured books from the API instead of `mock-data`; `BookCarousel` empty
-      guard
+      guard (team commit `036df39`)
 - [x] Footer line "Book information from Open Library" (was Google Books
       before 2026-11-23)
 - [ ] Loading/empty/error/unauthorized states on every route
