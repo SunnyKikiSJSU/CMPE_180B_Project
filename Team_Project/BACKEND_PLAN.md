@@ -1930,11 +1930,15 @@ documented with actual output.
 
 ### Phase 10 — Deployment and final QA
 
-- [ ] Apply migrations and seeds to RDS.
-- [ ] Deploy the API and frontend.
-- [ ] Verify private RDS connectivity and container logs.
-- [ ] Run the complete flow against RDS.
+- [x] Apply migrations and seeds to RDS.
+- [x] Deploy the API and frontend (with HTTPS via Caddy).
+- [x] Verify private RDS connectivity and container logs.
+- [x] Run the complete flow against RDS.
 - [ ] Rehearse the final demonstration and freeze features.
+
+Deployed 2026-11-25: https://3-136-227-184.sslip.io
+([`docs/evidence/deployment.md`](docs/evidence/deployment.md)). Migration
+version 8 on RDS, the same as local.
 
 **Exit:** The deployed application performs every core operation against
 PostgreSQL, and the local and deployed schemas match.

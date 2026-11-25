@@ -1,0 +1,14 @@
+# HTTPS in front of the Next.js `web` container (docker-compose-rdbs.yml,
+# profile "https"). SITE_ADDRESS is a hostname that resolves to the instance,
+# for example 3-136-227-184.sslip.io; Caddy gets and renews a Let's Encrypt
+# certificate for it automatically and redirects HTTP to HTTPS.
+{$SITE_ADDRESS} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+	reverse_proxy web:3000
+}

@@ -250,13 +250,17 @@ http://localhost:3000 (`WEB_PORT`).
 The deployment target is small on purpose (see [`AWS_PLAN.md`](AWS_PLAN.md)):
 
 ```text
-Browser --HTTP :80--> EC2 instance (Docker Compose: web + api) --> RDS PostgreSQL 18 (private)
+Browser --HTTPS :443--> EC2 instance (Docker Compose: Caddy + web + api) --> RDS PostgreSQL 18 (private)
 ```
 
 - RDS is already defined in Terraform (`infra/`, run with Terragrunt) and is not publicly accessible.
   Only the instance's security group is allowed to connect to it.
-- One EC2 instance runs the Next.js (`web`) and Go (`api`) containers. Only
-  `web` is exposed; it forwards `/api/*` to the API over the Compose network.
+- One EC2 instance runs Caddy (`proxy`, HTTPS with a Let's Encrypt
+  certificate), the Next.js (`web`) and Go (`api`) containers. Only Caddy is
+  exposed (80 redirects to 443); `web` forwards `/api/*` to the API over the
+  Compose network.
+- Live: https://3-136-227-184.sslip.io (deployed 2026-11-25,
+  [`docs/evidence/deployment.md`](docs/evidence/deployment.md)).
 - Application secrets (database password, `JWT_SECRET`) live in a
   gitignored `.env` file. The deployed API can instead read the database
   credentials at startup from the Secrets Manager secret the team's Terraform
@@ -297,7 +301,7 @@ storage.
 - [x] Go API and authentication: auth, catalog, Open Library search and import, shelves and progress, reviews and ratings, and reports.
 - [x] Next.js application (all pages on the API; manual UI checklist in `docs/evidence/ui-checklist.md`).
 - [ ] Validation, concurrency, and performance evidence (transaction and concurrency evidence and the query catalog are done; validation and performance are not).
-- [ ] AWS deployment.
+- [x] AWS deployment (EC2 + RDS in us-east-2, HTTPS): https://3-136-227-184.sslip.io
 - [ ] S3-backed asset storage (post-MVP).
 
 ## Reference Documents

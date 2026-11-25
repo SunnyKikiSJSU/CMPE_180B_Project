@@ -6,9 +6,9 @@ and Terraform today, what the deployment stage still needs, and the S3 work that
 is possible after the MVP.
 
 This is a course project, so the plan is deliberately small: one RDS database,
-one EC2 instance, plain HTTP, and secrets in the gitignored `.env` file.
+one EC2 instance, HTTPS through Caddy, and secrets in the gitignored `.env` file.
 
-- **Last updated:** 2026-11-20 (infrastructure applied in us-east-2; see [`infra/README.md`](infra/README.md#current-deployment))
+- **Last updated:** 2026-11-25 (deployed with HTTPS at https://3-136-227-184.sslip.io; see [`docs/evidence/deployment.md`](docs/evidence/deployment.md))
 - **Terraform + Terragrunt:** [`infra/`](infra/) (AWS provider `~> 5.0`, region `us-east-2`, the only region the course organization allows);
   units `app-sg` → `data` → `app` under `infra/live/dev` (restructured 2026-11-19),
   written by the team. Applied 2026-11-20 (20 resources). The console-created
@@ -88,24 +88,25 @@ yet.
 | Application secrets | `.env` on the instance (mode 600, never committed): `JWT_SECRET` and either the database password or `DB_SECRET_ARN`. With `DB_SECRET_ARN` set, the API reads the database credentials from the team's Secrets Manager secret at startup using the instance profile from `iam.tf` (conflict #4, decided 2026-11-19). Migrations and seeds still use the `RDS_*` values |
 | `infra/README.md` guidance | It says the backend should read the database secret at startup. The API supports both: `DB_SECRET_ARN` (recommended on EC2) or the `DB_*` values from `.env` (local and `./scripts/dev.sh rds`) |
 | JWT secret | `.env` (Open Library needs no key) |
-| HTTPS | None. Plain HTTP on port 80, `COOKIE_SECURE=false` |
+| HTTPS | Caddy (`proxy` service, profile `https` in `docker-compose-rdbs.yml`) on 80/443 with a Let's Encrypt certificate for `3-136-227-184.sslip.io` (sslip.io maps the name to the Elastic IP, so no domain is bought); HTTP redirects to HTTPS; `COOKIE_SECURE=true`. Added 2026-11-25 |
 | Same-site cookies, CORS | The browser only talks to the Next.js container, which forwards `/api/*` to the API over the Compose network. No CORS, no cross-site cookie question |
 | Rate limiting | None |
 | Database account | The API connects as the RDS master user |
 
-Because there is no HTTPS, passwords cross the network in clear text. Use only
-throwaway demo accounts (`reader1@example.com` and friends), never a real
-password. Add HTTPS only if the course asks for it (§6).
+Passwords and the session cookie travel only over HTTPS. Still use throwaway
+demo accounts (`reader1@example.com` and friends); the seed passwords are
+public in the repository.
 
 ---
 
 ## 3. Deployment design (EC2)
 
 ```text
-Browser ──HTTP :80──► EC2 instance (Docker Compose)
-                      ┌─────────────────────────────────────┐
-                      │ web  (Next.js, published on :80)    │
-                      │   /api/*  ──rewrite──► api :8080    │
+Browser ──HTTPS :443──► EC2 instance (Docker Compose)
+(:80 → 308)           ┌─────────────────────────────────────┐
+                      │ proxy (Caddy, :80/:443, Let's Encrypt)│
+                      │   ──► web (Next.js, :3000)           │
+                      │         /api/* ──rewrite──► api :8080│
                       │ api  (Go, :8080 on the instance only)│
                       └─────────────────────────────────────┘
                                    │ 5432, sslmode=require
@@ -122,8 +123,9 @@ Why EC2 and not ECS Fargate:
   account's free-tier or credit status before choosing the instance size.
 - Logs are `docker compose logs`, and you can SSH in during the demo.
 - The API's port 8080 is published on the instance because `./scripts/dev.sh`
-  checks `http://127.0.0.1:8080/readyz`. The security group opens only port 80
-  (and 22 for SSH), so 8080 is not reachable from the internet.
+  checks `http://127.0.0.1:8080/readyz`. The security group opens only ports
+  80 and 443 (and 22 for SSH from listed CIDRs, none by default), so 8080 and
+  3000 are not reachable from the internet (checked 2026-11-25).
 
 Trade-offs accepted: a single point of failure, manual patching, and manual
 deploys. Revisit if the course rubric requires ECS or autoscaling.
@@ -173,23 +175,31 @@ On the instance, over Session Manager
    `terragrunt output -raw db_address` in `infra/live/dev/data`; database, user, and password from the
    Secrets Manager secret, §1.1) and a random `JWT_SECRET` (Open Library needs no key).
    Run `chmod 600 .env`.
-3. `./scripts/dev.sh rds` (migrations, seeds, API), then
-   `docker compose -f docker-compose-rdbs.yml up -d --build web`.
-4. Open `http://<instance address>/`.
+3. Set `COOKIE_SECURE=true` and `SITE_ADDRESS=3-136-227-184.sslip.io` in
+   `.env`, run `./scripts/dev.sh rds` (migrations, seeds, API, web), then
+   `docker compose --env-file .env -f docker-compose-rdbs.yml -p book-metaverse-rds --profile https up -d proxy`
+   (Caddy, HTTPS on 443 with a Let's Encrypt certificate).
+4. Open `https://3-136-227-184.sslip.io/`.
+
+The t3.small has 2 GB of memory; add a 2 GB swap file before the first build.
 
 Seeds run only on the first deploy; they are idempotent but 003 takes about 11
 seconds.
 
 ### 4.4 Verification (BACKEND_PLAN Phase 10 exit)
 
-- [ ] `/readyz` returns 200.
-- [ ] RDS rejects connections from anywhere except the instance's security
+- [x] `/readyz` returns 200.
+- [x] RDS rejects connections from anywhere except the instance's security
       group.
-- [ ] Register, log in, Open Library search, import, shelve, progress, review, and
+- [x] Register, log in, Open Library search, import, shelve, progress, review, and
       every report work on the public address.
-- [ ] The session cookie is `HttpOnly` and `SameSite=Lax` (not `Secure`, since
-      this is plain HTTP).
-- [ ] `docker compose logs` shows readable output.
+- [x] The session cookie is `HttpOnly`, `Secure`, and `SameSite=Lax` (HTTPS
+      through Caddy since 2026-11-25).
+- [x] `docker compose logs` shows readable output.
+
+Done 2026-11-25; results and steps in
+[`docs/evidence/deployment.md`](docs/evidence/deployment.md). Live at
+https://3-136-227-184.sslip.io.
 - [ ] Restore an RDS snapshot into a separate instance and connect to it
       (`BACKEND_PLAN.md` §11.3).
 
