@@ -16,14 +16,27 @@ resource "aws_security_group" "app" {
   }
 }
 
-# Plain HTTP for the course demo (AWS_PLAN.md §2). The API port 8080 stays
-# closed: Next.js forwards /api/* to the API over the Compose network.
+# HTTP (redirects to HTTPS once Caddy runs). The API port 8080 and the web
+# port 3000 stay closed: Caddy forwards to Next.js, which forwards /api/* to
+# the API over the Compose network.
 resource "aws_vpc_security_group_ingress_rule" "http" {
   security_group_id = aws_security_group.app.id
   description       = "HTTP"
   ip_protocol       = "tcp"
   from_port         = 80
   to_port           = 80
+  cidr_ipv4         = "0.0.0.0/0"
+}
+
+# HTTPS: Caddy (the `proxy` service in docker-compose-rdbs.yml) terminates TLS
+# with a Let's Encrypt certificate. Port 80 stays open for the ACME HTTP
+# challenge and the redirect to HTTPS.
+resource "aws_vpc_security_group_ingress_rule" "https" {
+  security_group_id = aws_security_group.app.id
+  description       = "HTTPS"
+  ip_protocol       = "tcp"
+  from_port         = 443
+  to_port           = 443
   cidr_ipv4         = "0.0.0.0/0"
 }
 
