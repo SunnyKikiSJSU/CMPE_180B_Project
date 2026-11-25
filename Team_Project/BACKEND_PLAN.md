@@ -1924,7 +1924,9 @@ each frontend phase to the backend phase it needs.
 
 ### Phase 9 — Evidence and quality gates
 
-- [ ] 20+ validation cases with recorded pass/fail.
+- [x] 20+ validation cases with recorded pass/fail: 34 cases in
+      `database/tests/validation_cases.sql`, all passing locally and on RDS
+      (`docs/evidence/validation.md`).
 - [ ] Three transaction demonstrations with commit and rollback.
 - [ ] Three concurrency demonstrations with multi-session output.
 - [ ] Five index optimizations with before/after plans and timings.
@@ -1994,7 +1996,7 @@ The project is complete when:
 - [ ] Rating and review summaries stay correct after concurrent writes.
 - [ ] At least eight key queries return validated results.
 - [ ] Five indexes show measurable before/after improvement.
-- [ ] Twenty or more validation cases pass reproducibly.
+- [x] Twenty or more validation cases pass reproducibly.
 - [ ] Three transaction and three concurrency demonstrations are documented.
 - [ ] The frontend uses the API for every workspace page.
 - [ ] `go test ./...`, the SQL test suites, lint, typecheck, and build pass.
