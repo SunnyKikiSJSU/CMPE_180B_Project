@@ -1,11 +1,11 @@
 "use client";
 
-import { useMutation, useQueries, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import { isApiError } from "@/lib/errors";
 import { queryKeys } from "@/lib/query-keys";
 import { findInPages } from "@/services/review-service";
-import { readingService } from "@/services/reading-service";
+import { readingService, type ProgressFilters } from "@/services/reading-service";
 import type { Book, ProgressUpdateRequest, ReadingProgress, Shelf, ShelfBookResult } from "@/types/domain";
 
 /** Everything a status, progress, or shelf change can affect. */
@@ -23,20 +23,22 @@ export function useShelves() {
   return useQuery({ queryKey: queryKeys.shelves.all, queryFn: readingService.listShelves });
 }
 
-export function useShelfBooks(shelfId: string | undefined) {
+export const SHELF_PAGE_SIZE = 20;
+
+export function useShelfBooks(shelfId: string | undefined, page = 1) {
   return useQuery({
-    queryKey: queryKeys.shelves.books(shelfId ?? ""),
-    queryFn: () => readingService.shelfBooks(shelfId ?? ""),
+    queryKey: queryKeys.shelves.books(shelfId ?? "", page),
+    queryFn: () => readingService.shelfBooks(shelfId ?? "", page, SHELF_PAGE_SIZE),
     enabled: Boolean(shelfId),
+    placeholderData: keepPreviousData,
   });
 }
 
+/** Shelf changes can create, move, or delete progress, so book pages and lists refresh too. */
 function refreshShelves(client: QueryClient) {
-  void client.invalidateQueries({ queryKey: queryKeys.shelves.all });
-  void client.invalidateQueries({ queryKey: ["shelves"] });
-  void client.invalidateQueries({ queryKey: queryKeys.progress.all });
-  void client.invalidateQueries({ queryKey: queryKeys.history });
-  void client.invalidateQueries({ queryKey: ["reports"] });
+  for (const queryKey of [queryKeys.shelves.all, queryKeys.progress.all, queryKeys.history, queryKeys.books.all, ["reports"]]) {
+    void client.invalidateQueries({ queryKey });
+  }
 }
 
 export function useCreateShelf() {
@@ -51,7 +53,16 @@ export function useRenameShelf() {
 
 export function useDeleteShelf() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: (shelfId: string) => readingService.deleteShelf(shelfId), onSuccess: () => refreshShelves(client) });
+  return useMutation({
+    mutationFn: (shelfId: string) => readingService.deleteShelf(shelfId),
+    onSuccess: (_result, shelfId) => {
+      // Take the shelf out of the cached list first, so the page selects another
+      // shelf at once and nothing refetches the deleted shelf's books (404).
+      client.setQueryData<Shelf[]>(queryKeys.shelves.all, (shelves) => shelves?.filter((shelf) => shelf.id !== shelfId));
+      client.removeQueries({ queryKey: queryKeys.shelves.books(shelfId) });
+      refreshShelves(client);
+    },
+  });
 }
 
 export function useMoveShelfBook() {
@@ -70,12 +81,12 @@ export function useRemoveShelfBook() {
   });
 }
 
-export function useReadingProgress() {
-  return useQuery({ queryKey: queryKeys.progress.all, queryFn: readingService.listProgress });
+export function useReadingProgress(filters: ProgressFilters = {}) {
+  return useQuery({ queryKey: queryKeys.progress.list(filters), queryFn: () => readingService.listProgress(filters), placeholderData: keepPreviousData });
 }
 
 export function useReadingHistory(limit = 100) {
-  return useQuery({ queryKey: ["history", limit], queryFn: () => readingService.history({ limit }) });
+  return useQuery({ queryKey: queryKeys.historyRecent(limit), queryFn: () => readingService.history({ limit }) });
 }
 
 /**

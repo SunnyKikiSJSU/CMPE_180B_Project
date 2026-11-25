@@ -1,7 +1,9 @@
 import { apiClient, apiClientPage, query } from "@/lib/api-client";
-import type { Book, ProgressUpdateRequest, ReadingHistoryEvent, ReadingProgress, Shelf, ShelfBookResult } from "@/types/domain";
+import type { Book, ProgressUpdateRequest, ReadingHistoryEvent, ReadingProgress, ReadingStatus, Shelf, ShelfBookResult } from "@/types/domain";
 
 const id = encodeURIComponent;
+
+export type ProgressFilters = { status?: ReadingStatus; page?: number; pageSize?: number };
 
 export const readingService = {
   listShelves: () => apiClient<Shelf[]>("/api/shelves"),
@@ -13,7 +15,8 @@ export const readingService = {
   addToShelf: (shelfId: string, bookId: string) => apiClient<ShelfBookResult>(`/api/shelves/${id(shelfId)}/books`, { method: "POST", body: { bookId } }),
   moveShelfBook: (shelfId: string, bookId: string, targetShelfId: string) => apiClient<ShelfBookResult>(`/api/shelves/${id(shelfId)}/books/${id(bookId)}`, { method: "PATCH", body: { targetShelfId } }),
   removeFromShelf: (shelfId: string, bookId: string) => apiClient<void>(`/api/shelves/${id(shelfId)}/books/${id(bookId)}`, { method: "DELETE" }),
-  listProgress: () => apiClient<ReadingProgress[]>("/api/reading-progress"),
+  /** Paginated (the API defaults to 20 per page); `status` filters on the server. */
+  listProgress: (filters: ProgressFilters = {}) => apiClientPage<ReadingProgress>(`/api/reading-progress${query(filters)}`),
   /**
    * Creates the progress row when there is none, moves the book to the status
    * shelf for a new status, and returns 409 STALE_VERSION for an old version.
